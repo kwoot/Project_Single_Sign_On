@@ -40,4 +40,6 @@ Jeroen "Kwoot" Baten
 
 # Media
 
+- [Recording of my talk about this project at FOSDEM 2024](https://mirror.as35701.net/video.fosdem.org/2024/k3401/fosdem-2024-1665-making-ansible-playbooks-to-configure-single-sign-on-for-popular-open-source-applications.av1.webm)
+- [Recording of my talk about this project at cfgmgmtcamp 2023](https://www.youtube.com/watch?v=LXrtg0_wMqc).
 - [5 minute YouTube talk at the 2022 Nextcloud conference about this project](https://www.youtube.com/watch?v=pDPKzo8Bi10).
