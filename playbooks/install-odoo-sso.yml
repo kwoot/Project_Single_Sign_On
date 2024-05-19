@@ -31,10 +31,10 @@
 
     - name: Check if /opt/odoo/odoo-server/odoo-bin exists
       stat:
-        path: /opt/odoo/odoo-server/odoo-bin 
+        path: /opt/odoo/odoo-server/odoo-bin
       register: stat_odoo_bin
 
-    - name: Fail when odoo-bin not at /opt/odoo/odoo-server/odoo-bin 
+    - name: Fail when odoo-bin not at /opt/odoo/odoo-server/odoo-bin
       fail:
       when: stat_odoo_bin.stat.exists  == false
 
@@ -46,7 +46,7 @@
     - debug:
         var: stat_custom_addon_dir
 
-    - name: Fail when /opt/odoo/custom/addons is not an existing directory 
+    - name: Fail when /opt/odoo/custom/addons is not an existing directory
       fail:
       when: stat_custom_addon_dir.stat.exists  == false or stat_custom_addon_dir.stat.isdir == false
 
@@ -61,7 +61,7 @@
       register: installed_odoo
 
     - name: Get the last 4 characters from version string
-      set_fact: 
+      set_fact:
         odoo_version: "{{ installed_odoo.stdout[-4:] }}"
 
     - debug:
@@ -94,8 +94,8 @@
         - xmlsec1
         - python3-pysaml2
         - xmlstarlet
-    
-    # Original at  https://orus.io/xcg/auth_saml 
+
+    # Original at  https://orus.io/xcg/auth_saml
     # These days at https://github.com/OCA/server-auth/tree/{{ odoo_version }}/auth_saml
     - name: checkout OCA repo server-auth branch "{{ odoo_version }}" to temporary storage directory
       ansible.builtin.git:
@@ -117,7 +117,7 @@
         state: restarted
 
     # Copy ssl keys to fix nginx
-    - name: Make SSL dir for nginx    
+    - name: Make SSL dir for nginx
       ansible.builtin.file:
         path: /etc/nginx/ssl
         state: directory
@@ -130,7 +130,7 @@
         owner: root
         group: root
         mode: '0600'
-      loop:  
+      loop:
         - _wildcard.{{ domain }}.pem
         - _wildcard.{{ domain }}-key.pem
 
@@ -144,17 +144,17 @@
     # We can create a SAML client at the Keycloak side.  And use REST to
     # configure at the CMDBuild side.
 
-    ####################################################    
+    ####################################################
     # Create a SAML client at the Keycloak side.
-    ####################################################    
-     
+    ####################################################
+
     # Generate a key on the odoo server
     - name: Generate key on odoo server
       shell:
         cmd: /usr/bin/openssl req -x509 -sha256 -newkey rsa:2048 -keyout sp.key -out sp.crt -days 3650 -nodes -subj "/CN={{ domain }}"
         chdir: /tmp
 
-    # Start getting auth token      
+    # Start getting auth token
     # Retrieve token url needed.  Returns JSON payload with var token-service.
     - name: Retrieve token url from server
       uri:
@@ -163,13 +163,13 @@
       register: tokenurl
 
     - debug:
-        var: tokenurl.json["token-service"] 
+        var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
       set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-    # Call info endpoint 
+    # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
       uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
@@ -178,7 +178,7 @@
 
     - debug:
         var: endpointinfo
-   
+
     - name: Store authorization_endpoint for faster retrieval
       set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -218,14 +218,14 @@
         var: authtoken
 
     - debug:
-        var: authtoken.json["access_token"]  
+        var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
       set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
     - debug:
-        var: auth_token  
+        var: auth_token
 
     # Retrieve IDP metadata descriptor and copy the 509 formatted certificate
     # https://ad.onestein.lan/realms/ONESTEIN.LAN/protocol/saml/descriptor
@@ -234,10 +234,10 @@
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml/descriptor"
 #       headers:
 #         Accept: "application/json"
-#         Authorization: "Bearer {{ auth_token }}" 
+#         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
-        return_content: yes  
+        return_content: yes
       register: idp_metadata
 
     - debug:
@@ -251,13 +251,13 @@
 #       content: attribute
 #     register: instance_attributes
 
-    # We are going to save the XML metadate for shell processing    
+    # We are going to save the XML metadate for shell processing
     - name: Save IDP XML metadata to file for processing
       copy:
-        content: "{{  idp_metadata.content }}" 
+        content: "{{  idp_metadata.content }}"
         dest: /tmp/idp.xml
 
-    # We are going to use a shell command to retrieve the value for X509Certificate    
+    # We are going to use a shell command to retrieve the value for X509Certificate
     - name: Run xmlstarlet to retrieve X509Certificate
       shell:
         cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
@@ -323,7 +323,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ odoo_client_id }}"
         headers:
           Accept: "application/json"
-          Authorization: "Bearer {{ auth_token }}" 
+          Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -347,13 +347,13 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
- 
+
     - debug:
         var: deleteclient
 
@@ -382,7 +382,7 @@
         body: "{{ jsonbody }}"
         status_code: 201
       register: createclientresult
-   
+
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.onestein.lan:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID

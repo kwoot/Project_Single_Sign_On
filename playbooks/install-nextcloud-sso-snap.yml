@@ -52,17 +52,17 @@
     # We can create a SAML client at the Keycloak side.  And use REST to
     # configure at the CMDBuild side.
 
-    ####################################################    
+    ####################################################
     # Create a SAML client at the Keycloak side.
-    ####################################################    
-     
+    ####################################################
+
     # Generate a key on the nextcloud server
     - name: Generate key on nextcloud server
       shell:
         cmd: /usr/bin/openssl req -x509 -sha256 -newkey rsa:2048 -keyout sp.key -out sp.crt -days 3650 -nodes -subj '/CN={{ domain }}'
         chdir: /tmp
 
-    # Start getting auth token      
+    # Start getting auth token
     # Retrieve token url needed.  Returns JSON payload with var token-service.
     - name: Retrieve token url from server
       uri:
@@ -71,13 +71,13 @@
       register: tokenurl
 
     - debug:
-        var: tokenurl.json["token-service"] 
+        var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
       set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-    # Call info endpoint 
+    # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
       uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
@@ -86,7 +86,7 @@
 
     - debug:
         var: endpointinfo
-   
+
     - name: Store authorization_endpoint for faster retrieval
       set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -126,14 +126,14 @@
         var: authtoken
 
     - debug:
-        var: authtoken.json["access_token"]  
+        var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
       set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
     - debug:
-        var: auth_token  
+        var: auth_token
 
     # Retrieve IDP metadata descriptor and copy the 509 formatted certificate
     # https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/saml/descriptor
@@ -142,10 +142,10 @@
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml/descriptor"
 #       headers:
 #         Accept: "application/json"
-#         Authorization: "Bearer {{ auth_token }}" 
+#         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
-        return_content: yes  
+        return_content: yes
       register: idp_metadata
 
     - debug:
@@ -159,13 +159,13 @@
 #       content: attribute
 #     register: instance_attributes
 
-    # We are going to save the XML metadate for shell processing    
+    # We are going to save the XML metadate for shell processing
     - name: Save IDP XML metadata to file for processing
       copy:
-        content: "{{  idp_metadata.content }}" 
+        content: "{{  idp_metadata.content }}"
         dest: /tmp/idp.xml
 
-    # We are going to use a shell command to retrieve the value for X509Certificate    
+    # We are going to use a shell command to retrieve the value for X509Certificate
     - name: Run xmlstarlet to retrieve X509Certificate
       shell:
         cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
@@ -211,7 +211,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ nextcloud_client_id }}"
         headers:
           Accept: "application/json"
-          Authorization: "Bearer {{ auth_token }}" 
+          Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -235,13 +235,13 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
- 
+
     - debug:
         var: deleteclient
 
@@ -273,14 +273,14 @@
         body: "{{ jsonbody }}"
         status_code: 201
       register: createclientresult
-   
+
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.{{ domain }}:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
       debug:
         var: createclientresult.location
 
-    - name: Put nextcloud OCC commands together in one Ansbible block 
+    - name: Put nextcloud OCC commands together in one Ansbible block
 #     ##########################################################################
 #     # Start of Nexctcloud OCC commands block
 #     ##########################################################################
@@ -302,18 +302,18 @@
         shell:
           cmd: "nextcloud.occ config:system:set trusted_domains 1 --value='nc.{{ domain }}'"
           chdir: /snap/nextcloud/current
-  
+
       - name: Enable already installed but default disabled Nextcloud External Storage support
         shell:
           cmd: nextcloud.occ app:enable files_external
           chdir: /snap/nextcloud/current
-  
+
       - name: Retrieve list of currently installed apps
         shell:
           cmd: nextcloud.occ app:list
           chdir: /snap/nextcloud/current
         register: app_list
-     
+
       - name: Install and enable all the Nextcloud apps we like
         shell:
           cmd: nextcloud.occ app:install "{{ item }}"
@@ -330,8 +330,8 @@
       #
       # Thhis could be useful: https://janikvonrotz.ch/2020/04/21/configure-saml-authentication-for-nextcloud-with-keycloack/
       #
-      # In case you lose connection to your nextcloud account, you can try to connect login 
-      # to http://nextcloud.my.domain/login?direct=1 to login with your admin account again.    
+      # In case you lose connection to your nextcloud account, you can try to connect login
+      # to http://nextcloud.my.domain/login?direct=1 to login with your admin account again.
       #
       # Make sure some settings are in place
       # occ config:list
@@ -343,14 +343,14 @@
       #       "general-require_provisioned_account": "1",
       #       "general-allow_multiple_user_back_ends": "0"
 
-      # If 0 then autocreate users, if 1, then not...  
+      # If 0 then autocreate users, if 1, then not...
       # Set this to 1 and try to solve it yourself...
       - name: Configure Only allow authentication if an account exists on some other backend (e.g. LDAP).
         shell:
           cmd: nextcloud.occ config:app:set user_saml general-require_provisioned_account --value="0"
           chdir: /snap/nextcloud/current
 
-      # Disable this setting (means set it to 1) once Keycloak connection works. 
+      # Disable this setting (means set it to 1) once Keycloak connection works.
       - name: Configure Allow the use of multiple user back-ends (e.g. LDAP)
         shell:
           # Yes, I know, a zero to switch it on is weird.
@@ -384,49 +384,49 @@
       #    Identifier of the IdP entry : https://keycloak.my.domain/auth/realms/<yourrealm>
       #    URL, Target of the IdP where the SP will send the Authentication Request Message : https://keycloak.my.domain/auth/realms/<yourrealm>/protocol/saml
       #    URL Location of the IdP where the SP will send SLO Request : https://keycloak.my.domain/auth/realms/<yourrealm>/protocol/saml
-      #    Public X.509 certificate of the IdP : leave empty 
+      #    Public X.509 certificate of the IdP : leave empty
       #
-      #    saml:config:set 
-      #    [--general-idp0_display_name GENERAL-IDP0_DISPLAY_NAME] 
-      #    [--general-uid_mapping GENERAL-UID_MAPPING] 
-      #    [--idp-entityId IDP-ENTITYID] 
-      #    [--idp-singleLogoutService.responseUrl IDP-SINGLELOGOUTSERVICE.RESPONSEURL] 
-      #    [--idp-singleLogoutService.url IDP-SINGLELOGOUTSERVICE.URL] 
-      #    [--idp-singleSignOnService.url IDP-SINGLESIGNONSERVICE.URL] 
-      #    [--idp-x509cert IDP-X509CERT] 
-      #    [--security-authnRequestsSigned SECURITY-AUTHNREQUESTSSIGNED] 
-      #    [--security-general SECURITY-GENERAL] 
-      #    [--security-logoutRequestSigned SECURITY-LOGOUTREQUESTSIGNED] 
-      #    [--security-logoutResponseSigned SECURITY-LOGOUTRESPONSESIGNED] 
-      #    [--security-lowercaseUrlencoding SECURITY-LOWERCASEURLENCODING] 
-      #    [--security-nameIdEncrypted SECURITY-NAMEIDENCRYPTED] 
-      #    [--security-offer SECURITY-OFFER] 
-      #    [--security-required SECURITY-REQUIRED] 
-      #    [--security-signatureAlgorithm SECURITY-SIGNATUREALGORITHM] 
-      #    [--security-signMetadata SECURITY-SIGNMETADATA] 
-      #    [--security-sloWebServerDecode SECURITY-SLOWEBSERVERDECODE] 
-      #    [--security-wantAssertionsEncrypted SECURITY-WANTASSERTIONSENCRYPTED] 
-      #    [--security-wantAssertionsSigned SECURITY-WANTASSERTIONSSIGNED] 
-      #    [--security-wantMessagesSigned SECURITY-WANTMESSAGESSIGNED] 
-      #    [--security-wantNameId SECURITY-WANTNAMEID] 
-      #    [--security-wantNameIdEncrypted SECURITY-WANTNAMEIDENCRYPTED] 
-      #    [--security-wantXMLValidation SECURITY-WANTXMLVALIDATION] 
-      #    [--saml-attribute-mapping-displayName_mapping SAML-ATTRIBUTE-MAPPING-DISPLAYNAME_MAPPING] 
-      #    [--saml-attribute-mapping-email_mapping SAML-ATTRIBUTE-MAPPING-EMAIL_MAPPING] 
-      #    [--saml-attribute-mapping-group_mapping SAML-ATTRIBUTE-MAPPING-GROUP_MAPPING] 
-      #    [--saml-attribute-mapping-home_mapping SAML-ATTRIBUTE-MAPPING-HOME_MAPPING] 
-      #    [--saml-attribute-mapping-quota_mapping SAML-ATTRIBUTE-MAPPING-QUOTA_MAPPING] 
-      #    [--sp-x509cert SP-X509CERT] 
-      #    [--sp-name-id-format SP-NAME-ID-FORMAT] 
-      #    [--sp-privateKey SP-PRIVATEKEY] 
+      #    saml:config:set
+      #    [--general-idp0_display_name GENERAL-IDP0_DISPLAY_NAME]
+      #    [--general-uid_mapping GENERAL-UID_MAPPING]
+      #    [--idp-entityId IDP-ENTITYID]
+      #    [--idp-singleLogoutService.responseUrl IDP-SINGLELOGOUTSERVICE.RESPONSEURL]
+      #    [--idp-singleLogoutService.url IDP-SINGLELOGOUTSERVICE.URL]
+      #    [--idp-singleSignOnService.url IDP-SINGLESIGNONSERVICE.URL]
+      #    [--idp-x509cert IDP-X509CERT]
+      #    [--security-authnRequestsSigned SECURITY-AUTHNREQUESTSSIGNED]
+      #    [--security-general SECURITY-GENERAL]
+      #    [--security-logoutRequestSigned SECURITY-LOGOUTREQUESTSIGNED]
+      #    [--security-logoutResponseSigned SECURITY-LOGOUTRESPONSESIGNED]
+      #    [--security-lowercaseUrlencoding SECURITY-LOWERCASEURLENCODING]
+      #    [--security-nameIdEncrypted SECURITY-NAMEIDENCRYPTED]
+      #    [--security-offer SECURITY-OFFER]
+      #    [--security-required SECURITY-REQUIRED]
+      #    [--security-signatureAlgorithm SECURITY-SIGNATUREALGORITHM]
+      #    [--security-signMetadata SECURITY-SIGNMETADATA]
+      #    [--security-sloWebServerDecode SECURITY-SLOWEBSERVERDECODE]
+      #    [--security-wantAssertionsEncrypted SECURITY-WANTASSERTIONSENCRYPTED]
+      #    [--security-wantAssertionsSigned SECURITY-WANTASSERTIONSSIGNED]
+      #    [--security-wantMessagesSigned SECURITY-WANTMESSAGESSIGNED]
+      #    [--security-wantNameId SECURITY-WANTNAMEID]
+      #    [--security-wantNameIdEncrypted SECURITY-WANTNAMEIDENCRYPTED]
+      #    [--security-wantXMLValidation SECURITY-WANTXMLVALIDATION]
+      #    [--saml-attribute-mapping-displayName_mapping SAML-ATTRIBUTE-MAPPING-DISPLAYNAME_MAPPING]
+      #    [--saml-attribute-mapping-email_mapping SAML-ATTRIBUTE-MAPPING-EMAIL_MAPPING]
+      #    [--saml-attribute-mapping-group_mapping SAML-ATTRIBUTE-MAPPING-GROUP_MAPPING]
+      #    [--saml-attribute-mapping-home_mapping SAML-ATTRIBUTE-MAPPING-HOME_MAPPING]
+      #    [--saml-attribute-mapping-quota_mapping SAML-ATTRIBUTE-MAPPING-QUOTA_MAPPING]
+      #    [--sp-x509cert SP-X509CERT]
+      #    [--sp-name-id-format SP-NAME-ID-FORMAT]
+      #    [--sp-privateKey SP-PRIVATEKEY]
       #    [--output [OUTPUT]] [--] <providerId>
       #
       #  sudo -u www-data nextcloud.occ saml:config:get
       #  - 1:
       #    - general-uid_mapping: username
       #    - general-idp0_display_name: Keycloak
-      #    - sp-x509cert: 
-      #    - sp-privateKey: 
+      #    - sp-x509cert:
+      #    - sp-privateKey:
       #    - idp-entityId: https://ad.{{ domain }}/auth/realms/ONESTEIN.LAN
       #    - idp-singleSignOnService.url: https://ad.{{ domain }}/auth/realms/ONESTEIN.LAN/protocol/saml
       #    - idp-singleLogoutService.url: https://ad.{{ domain }}/auth/realms/ONESTEIN.LAN/protocol/saml
@@ -434,7 +434,7 @@
 
       #    - general-idp0_display_name: Keycloak
       #    PLEASE NOTE: No '--value'  to set the value!
-      - name: Saml configuration set general-idp0_display_name 
+      - name: Saml configuration set general-idp0_display_name
         shell:
           cmd: nextcloud.occ  saml:config:set --general-idp0_display_name  "Keycloak"   1
           chdir: /snap/nextcloud/current
@@ -456,7 +456,7 @@
       #    - idp-entityId: https://ad.{{ domain }}/realms/ONESTEIN.LAN
       #    https://nextcloud.yourdomain.com/index.php/apps/user_saml/metadata  ?
       #    What is an Entity ID: https://spaces.at.internet2.edu/display/federation/saml-metadata-entityid
-      - name: Saml configuration set idp-entityId  
+      - name: Saml configuration set idp-entityId
         shell:
 #         cmd: nextcloud.occ  saml:config:set  --idp-entityId  "{{ nextcloud_server_url }}/index.php/apps/user_saml/metadata" 1
           cmd: nextcloud.occ  saml:config:set  --idp-entityId  "{{ keycloak_server_url }}/realms/{{ realm }}" 1
@@ -464,14 +464,14 @@
           chdir: /snap/nextcloud/current
 
       #    - idp-singleSignOnService.url: https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/saml
-      # --idp-singleSignOnService.url 
+      # --idp-singleSignOnService.url
       - name: Saml configuration set general-uid_mapping
         shell:
           cmd: nextcloud.occ  saml:config:set --idp-singleSignOnService.url "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"   1
           chdir: /snap/nextcloud/current
 
       #    - idp-singleLogoutService.url: https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/saml
-      # --idp-singleLogoutService.url 
+      # --idp-singleLogoutService.url
       - name: Saml configuration set general-uid_mapping
         shell:
           cmd: nextcloud.occ  saml:config:set --idp-singleLogoutService.url  "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"   1
@@ -508,20 +508,20 @@
 #         chdir: /snap/nextcloud/current
 
       # sp_certs_not_found_and_required, idp_cert_or_fingerprint_not_found_and_required
-      #    [--sp-x509cert SP-X509CERT] 
-      #    [--sp-privateKey SP-PRIVATEKEY] 
-      - name: Saml configuration set  sp-x509cert 
+      #    [--sp-x509cert SP-X509CERT]
+      #    [--sp-privateKey SP-PRIVATEKEY]
+      - name: Saml configuration set  sp-x509cert
         shell:
           cmd: nextcloud.occ  saml:config:set --sp-x509cert   "{{ sp_crt.stdout }}"   1
           chdir: /snap/nextcloud/current
 
-      - name: Saml configuration set sp-privateKey 
+      - name: Saml configuration set sp-privateKey
         shell:
           cmd: nextcloud.occ  saml:config:set --sp-privateKey   "{{ sp_key.stdout }}"   1
           chdir: /snap/nextcloud/current
 
-      #    [--idp-x509cert IDP-X509CERT] 
-      - name: Saml configuration set  idp-x509cert 
+      #    [--idp-x509cert IDP-X509CERT]
+      - name: Saml configuration set  idp-x509cert
         shell:
           cmd: nextcloud.occ  saml:config:set --idp-x509cert   "{{ idp_crt }}"   1
           chdir: /snap/nextcloud/current
@@ -532,7 +532,7 @@
           cmd: nextcloud.occ  saml:config:get
           chdir: /snap/nextcloud/current
         register: ncconfig
- 
+
       ##########################################################################
       # Closing of Nexctcloud OCC commands block
       ##########################################################################
@@ -549,9 +549,9 @@
 
     - name: Post-install message IT IS IMPORTANT TO READ THIS
       pause:
-        prompt: |  
+        prompt: |
           ********************************************************************************************************
-          * Nextcloud is installed in /snap/nextcloud/current. 
+          * Nextcloud is installed in /snap/nextcloud/current.
           * Here you can also find the database config in /snap/nextcloud/current/config/config.php
           * Nextcloud data is stored in /var/lib/nextcloud.
           * Default login after installation is admin/admin

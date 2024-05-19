@@ -26,7 +26,7 @@
         url: https://maven.xwiki.org/xwiki-keyring.gpg
         dest: /usr/share/keyrings/xwiki-keyring.gpg
         mode: '0644'
-  
+
     - name: Download Xwiki  repo
       # sudo wget "https://maven.xwiki.org/stable/xwiki-stable.list" -P /etc/apt/sources.list.d/
       # Note that there is several repositories you can choose (as alternatives to the stable one you have in the previous example):
@@ -38,7 +38,7 @@
         dest: /etc/apt/sources.list.d/xwiki-lts.list
         mode: '0644'
 
-    - name: Update repositories cache 
+    - name: Update repositories cache
       apt:
         update_cache: yes
 
@@ -55,8 +55,8 @@
         - xwiki-tomcat9-pgsql
         - libreoffice
         - autopostgresqlbackup
-        - mlocate  
-        - openssl  
+        - mlocate
+        - openssl
         - apache2
 
     - name: Make sure no nginx installed
@@ -85,7 +85,7 @@
         state: present
         name: rewrite
 
-    - name: Make SSL dir for apache    
+    - name: Make SSL dir for apache
       ansible.builtin.file:
         path: /etc/apache2/ssl
         state: directory
@@ -98,11 +98,11 @@
         owner: root
         group: root
         mode: '0600'
-      loop:  
+      loop:
         - _wildcard.{{ domain }}.pem
         - _wildcard.{{ domain }}-key.pem
 
-    - name: Install Apache reverse proxy virtualhost for Keycloak 
+    - name: Install Apache reverse proxy virtualhost for Keycloak
       template:
         src: "xwiki_apache.conf"
         dest: "/etc/apache2/sites-available/xwiki.conf"
@@ -120,7 +120,7 @@
         enabled: yes
         state: restarted
 
-      
+
     - name: remove existing filestore if exists
       file:
         path: /etc/tomcat9/keystore.pkcs12
@@ -138,7 +138,7 @@
         chdir: /etc/tomcat9/
 
     # Enable Tomcat9 ssl connector on 8443
-    # Do not try to do this the hard way with some Ansible XML magix. It doesn't work. 
+    # Do not try to do this the hard way with some Ansible XML magix. It doesn't work.
     # Simply copy from local files
     - name: Overwrite /etc/tomcat9/server.xml with enabled https connector definition from local file
       copy:
@@ -215,7 +215,7 @@
         regexp: ".*url.trustedDomains=.*"
         line: "url.trustedDomains={{ domain }}"
 
-   
+
     #-# Allow to enable or disable checks performed on domains by taking into account the list of trusted domains.
     #-# Disable this property only if you experienced some issues on your wiki: some security check won't be performed when
     #-# this property is set to false.
@@ -226,23 +226,23 @@
     # Find xwiki.authentication.authclass in xwiki.cfg and comment it out with #-# in the beginning.
     # Add below: xwiki.authentication.authclass=org.xwiki.contrib.oidc.auth.OIDCAuthServiceImpl
     - name: Enable Keycloak SSO oidc auth services in Xwiki
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.cfg
         regexp: ".*xwiki.authentication.authclass=.*"
         line: "xwiki.authentication.authclass=org.xwiki.contrib.oidc.auth.OIDCAuthServiceImpl"
 
     # xwiki.home=https://MYWIKIDOMAIN/
     - name: Set xwiki.home in xwiki.cfg
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.cfg
         regexp: ".*xwiki.home=.*"
-        line: "xwiki.home={{ xwiki_server_url }}" 
+        line: "xwiki.home={{ xwiki_server_url }}"
 
 
     # Open xwiki.properties and adapt the following to your settings, and add this at the end of the file (Note the __XXX__ parts):
     # oidc.xwikiprovider=https://__YOUR-WIKI-ADDRESS__/xwiki/oidc
     - name: Configure oidc.xwikiprovider
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.xwikiprovider=.*"
         line: "oidc.xwikiprovider={{ xwiki_server_url }}/xwiki/oidc"
@@ -250,7 +250,7 @@
 
     # oidc.skipped=false
     - name: Configure
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.skipped=.*"
         line: "oidc.skipped=false"
@@ -273,13 +273,13 @@
       register: tokenurl
 
     - debug:
-        var: tokenurl.json["token-service"] 
+        var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
       set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-    # Call info endpoint 
+    # Call info endpoint
     # Curl example: curl -k GET "https://ad.onestein.lan:8443/realms/ONESTEIN.LAN/.well-known/openid-configuration"
     # Example output:
     #  "issuer": "https://ad.onestein.lan:8443/realms/ONESTEIN.LAN",
@@ -301,7 +301,7 @@
 
     - debug:
         var: endpointinfo
-   
+
     - name: Store authorization_endpoint for faster retrieval
       set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -323,7 +323,7 @@
     # Relocated this code to here so we can generate better strings based on result of prior REST call
     # oidc.endpoint.authorization=https://__KEYCLOAK-ADDRESS__/auth/realms/__REALM__/protocol/openid-connect/auth
     - name: Configure oidc.endpoint.authorization
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.authorization=.*"
         line: "oidc.endpoint.authorization={{ authorization_endpoint }}"
@@ -331,7 +331,7 @@
 
     # oidc.endpoint.token=https://__KEYCLOAK-ADDRESS__/auth/realms/__REALM__/protocol/openid-connect/token
     - name: Configure oidc.endpoint.token
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.token=.*"
         line: "oidc.endpoint.token={{ token_endpoint }}"
@@ -339,7 +339,7 @@
 
     # oidc.endpoint.userinfo=https://__KEYCLOAK-ADDRESS__/auth/realms/__REALM__/protocol/openid-connect/userinfo
     - name: Configure oidc.endpoint.userinfo
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.userinfo=.*"
         line: "oidc.endpoint.userinfo={{ userinfo_endpoint }}"
@@ -347,13 +347,13 @@
 
     # oidc.scope=openid,profile,email,address
     - name: Configure oidc.scope
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.scope=.*"
         line: "oidc.scope=openid,profile,email,address"
 
     - name: Configure
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.defaultClientConfiguration=.*"
         line: "oidc.defaultClientConfiguration=default"
@@ -361,21 +361,21 @@
 
     # oidc.endpoint.userinfo.method=GET
     - name: Configure oidc.endpoint.userinfo.method
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.userinfo.method=.*"
         line: "oidc.endpoint.userinfo.method=GET"
 
     # oidc.user.nameFormater=${oidc.user.preferredUsername._clean._lowerCase}
     - name: Configure oidc.user.nameFormater
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.user.nameFormater=.*"
         line: "oidc.user.nameFormater=${oidc.user.preferredUsername._clean._lowerCase}"
 
     # oidc.user.subjectFormater=${oidc.user.subject}
     - name: Configure oidc.user.subjectFormater
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.user.subjectFormater=.*"
         line: "oidc.user.subjectFormater=${oidc.user.subject}"
@@ -389,21 +389,21 @@
 
     # oidc.userinfoclaims=xwiki_user_accessibility,xwiki_user_company,xwiki_user_displayHiddenDocuments,xwiki_user_editor,xwiki_user_usertype
     - name: Configure oidc.userinfoclaims
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.userinfoclaims=.*"
         line: "oidc.userinfoclaims=xwiki_user_accessibility,xwiki_user_company,xwiki_user_displayHiddenDocuments,xwiki_user_editor,xwiki_user_usertype"
 
     # # oidc.userinforefreshrate=600000
     - name: Configure oidc.userinforefreshrate
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.userinforefreshrate=.*"
         line: "oidc.userinforefreshrate=600000"
 
     # oidc.clientid=__KEYCLOAK-CLIENT-ID__
     - name: Configure oidc.clientid
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.clientid=.*"
         line: "oidc.clientid={{ xwiki_client_id }}"
@@ -411,7 +411,7 @@
     # oidc.endpoint.token.auth_method=client_secret_basic
     # Changed this to client_secret_post and retry
     - name: Configure oidc.endpoint.token.auth_method=client_secret_post
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.token.auth_method=.*"
         line: "oidc.endpoint.token.auth_method=client_secret_post"
@@ -436,19 +436,19 @@
         var: authtoken
 
     - debug:
-        var: authtoken.json["access_token"]  
+        var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
       set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
     - debug:
-        var: auth_token  
+        var: auth_token
 
     #######################################################################################
     # Very badly documented in Keycloak: The admin RESTful API has a base path /admin/realms/
     #######################################################################################
-    
+
     # Retrieve current list of clients of our type
     # So, this works in curl:
     # curl -k -v -H "Accept: application/json" -H "Authorization: Bearer ${access_token}" "https://ad.onestein.lan:8443/admin/realms/master/clients" | jq .
@@ -457,7 +457,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ xwiki_client_id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -472,13 +472,13 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
- 
+
     - debug:
         var: deleteclient
 
@@ -502,7 +502,7 @@
         body: "{{ jsonbody }}"
         status_code: 201
       register: createclientresult
-   
+
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.onestein.lan:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
@@ -515,12 +515,12 @@
 #       url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ xwiki_client_id }}"
 #       headers:
 #        Accept: "application/json"
-#        Authorization: "Bearer {{ auth_token }}" 
+#        Authorization: "Bearer {{ auth_token }}"
 #       method: get
 #       validate_certs: false
 #     register: client1
 #     # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
-   
+
     # After importing this to Keycloak, you have to generate a new Client-Secret and put it into xwiki.properties under oidc.secret=__KEYCLOAK-CLIENT-SECRET__.
     # Generate and retrieve a new Client-Secret to put into  xwiki.properties under oidc.secret=__KEYCLOAK-CLIENT-SECRET__
     # GET /{realm}/clients/{id}/client-secret
@@ -529,7 +529,7 @@
         url: "{{ createclientresult.location }}/client-secret"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: clientsecret
@@ -540,9 +540,9 @@
 
     # Aim is: In the end, Client-ID and Client-Secret have to match on Keycloak and in xwiki.properties.
     # oidc.secret=__KEYCLOAK-CLIENT-SECRET__
-    
+
     - name: Configure oidc.secret
-      lineinfile: 
+      lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.secret=.*"
         line: "oidc.secret={{ client_secret }}"
@@ -551,7 +551,7 @@
     # Aim is: In the end, Client-ID and Client-Secret have to match on Keycloak and in xwiki.properties.
     #
     - name: Enable and start tomcat9
-      service: 
+      service:
         name: tomcat9
         state: restarted
         enabled: yes
@@ -559,7 +559,7 @@
 
     - name: Post-install message IT IS IMPORTANT TO READ THIS
       debug:
-        msg: |  
+        msg: |
           ********************************************************************************************************
           * After a fresh Xwiki installation you need to manually install (within Xwiki!) the following extension:
           * OpenID Connect Authenticator 1.31
@@ -574,4 +574,4 @@
           * After that ssh to the server and do a systemctl restart tomcat9
           ********************************************************************************************************
 
- 
+

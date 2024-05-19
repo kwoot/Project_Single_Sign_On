@@ -47,11 +47,11 @@
         - ca-certificates
         - curl
         - openssh-server
-        - mlocate  
-        - openssl  
+        - mlocate
+        - openssl
         - autopostgresqlbackup
-       
-    - name: Upload mkcert program 
+
+    - name: Upload mkcert program
       copy:
         src: files/mkcert
         dest: /root/mkcert
@@ -78,7 +78,7 @@
 
     - name: Update all CA certificates
       shell:
-        cmd: /usr/sbin/update-ca-certificates 
+        cmd: /usr/sbin/update-ca-certificates
 
     # Check if our CA is already installed
     # Should be /usr/local/share/ca-certificates/mkcert_development_CA_62268663181785622328732999788222374785.crt
@@ -89,16 +89,16 @@
 
     - name: Is our root CA already present?
       debug:
-        msg: "Yes it is!" 
+        msg: "Yes it is!"
       when: root_ca_stat.stat.exists
 
     # Start installation of GitLab
     - name: Download repo add script.
       get_url:
-        url: https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.deb.sh 
+        url: https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.deb.sh
         dest: /tmp/script.deb.sh
         mode: '0700'
-  
+
     - name: execute repo add script
       shell:
         cmd: /tmp/script.deb.sh
@@ -123,7 +123,7 @@
       lineinfile:
         path: /etc/gitlab/gitlab.rb
         regexp: ".*letsencrypt['enable'].*"
-        line: letsencrypt['enable'] = false 
+        line: letsencrypt['enable'] = false
         state: present
 
     # 1  Create the certificate(s)
@@ -155,14 +155,14 @@
         mode: '0644'
         force: true
 
-    # Copy SSL files to gitlab /opt/gitlab/embedded/ssl/certs 
-    # To set the location of ssl certificates create /etc/gitlab/ssl directory, 
-    - name: Make SSL dir for GitLab    
+    # Copy SSL files to gitlab /opt/gitlab/embedded/ssl/certs
+    # To set the location of ssl certificates create /etc/gitlab/ssl directory,
+    - name: Make SSL dir for GitLab
       ansible.builtin.file:
         path: /etc/gitlab/ssl
         state: directory
         mode: '0755'
- 
+
     # place the .crt and .key files in the directory and specify the following configuration:
 
     - name: Copy SSL cert to gitlab ssl certs dir /etc/gitlab/ssl
@@ -188,7 +188,7 @@
         path: /etc/gitlab/gitlab.rb
         regexp: ".*gitlab_rails['ldap_enabled'].*"
         state: absent
-    
+
     # gitlab_rails['ldap_servers'] = YAML.load_file('/etc/gitlab/gitlab_freeipa_settings.yml')
     - name: Remove if exists reference to LDAP settings file
       lineinfile:
@@ -204,13 +204,13 @@
       register: tokenurl
 
     - debug:
-        var: tokenurl.json["token-service"] 
+        var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
       set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-    # Call info endpoint 
+    # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
       uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
@@ -219,7 +219,7 @@
 
     - debug:
         var: endpointinfo
-   
+
     - name: Store authorization_endpoint for faster retrieval
       set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -259,19 +259,19 @@
         var: authtoken
 
     - debug:
-        var: authtoken.json["access_token"]  
+        var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
       set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
     - debug:
-        var: auth_token  
+        var: auth_token
 
     #######################################################################################
     # Very badly documented: The admin RESTful API has a base path /admin/realms/
     #######################################################################################
-    
+
     # Retrieve current list of clients of our type
     # So, this works in curl:
     # curl -k -v -H "Accept: application/json" -H "Authorization: Bearer ${access_token}" "https://ad.{{ domain }}:8443/admin/realms/master/clients" | jq .
@@ -280,7 +280,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ gitlab_client_id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -295,13 +295,13 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
- 
+
     - debug:
         var: deleteclient
 
@@ -322,7 +322,7 @@
         body: "{{ jsonbody }}"
         status_code: 201
       register: createclientresult
-   
+
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.{{ domain }}:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
@@ -336,7 +336,7 @@
         url: "{{ createclientresult.location }}/client-secret"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: clientsecret
@@ -381,7 +381,7 @@
           gitlab_rails['omniauth_providers'] = [
           {
             name: "openid_connect",
-            label: "Network login", 
+            label: "Network login",
             args: {
               name: "openid_connect",
               scope: ["openid","profile","email"],
@@ -403,7 +403,7 @@
       shell:
         cmd: gitlab-ctl reconfigure
 
-    - name: Start GitLab 
+    - name: Start GitLab
       shell:
         cmd: gitlab-ctl start
 
@@ -419,7 +419,7 @@
       # Measured 12 attempts, so 25 max should work most of the time.
       retries: 25
       delay: 10
-        
+
     - debug:
         msg: "Done waiting for 443"
 
@@ -429,7 +429,7 @@
       register: opensslconf
 
     - debug:
-        var: opensslconf    
+        var: opensslconf
 
     - name: Post-install message IT IS IMPORTANT TO READ THIS
       pause:

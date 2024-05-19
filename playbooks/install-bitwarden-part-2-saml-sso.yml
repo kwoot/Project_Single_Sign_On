@@ -11,7 +11,7 @@
   vars:
     root_ca_path: /usr/local/share/ca-certificates/mkcert_development_CA_62268663181785622328732999788222374785.crt
     bitwarden_server_url: https://password.{{ domain }}
-    #bitwarden_client_id: "client-bitwarden-{{ ansible_fqdn }}" 
+    #bitwarden_client_id: "client-bitwarden-{{ ansible_fqdn }}"
     bitwarden_client_id: "{{ bitwarden_server_url }}/sso/saml2"
     bitwarden_client_name: "client-bitwarden-{{ ansible_fqdn }}"
     keycloak_server_url: https://ad.{{ domain }}
@@ -30,7 +30,7 @@
     debug:
       msg: Do yourself a favour; export ANSIBLE_STDOUT_CALLBACK=debug
 
- 
+
   # We need the uuid of the organization, so ask this from the command line
   - fail:
       msg: |
@@ -52,9 +52,9 @@
       organization_uuid: "{{ client_id[-36:] }}"
 
   ############################################################################################
-  # Also this needs to be fixed. 
+  # Also this needs to be fixed.
   # The installation of the Bitwarden Directory Connector to sync users from ldap to bitwarden
-  # DO NOT EVER USE THE PIECE OF CRAP Bitwarden Directory Connector to sync users from ldap 
+  # DO NOT EVER USE THE PIECE OF CRAP Bitwarden Directory Connector to sync users from ldap
   ############################################################################################
   # SAML SSO: https://bitwarden.com/help/configure-sso-saml/
   # Install all needed software in one go.
@@ -74,7 +74,7 @@
       chdir: /tmp
 
 
-  # Start getting auth token      
+  # Start getting auth token
   # Retrieve token url needed.  Returns JSON payload with var token-service.
   - name: Retrieve token url from server
     uri:
@@ -83,13 +83,13 @@
     register: tokenurl
 
   - debug:
-      var: tokenurl.json["token-service"] 
+      var: tokenurl.json["token-service"]
 
   - name: Store url for easier retrieval
     set_fact:
       token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-  # Call info endpoint 
+  # Call info endpoint
   - name: "Retrieve endpoint info for our realm {{ realm }}"
     uri:
       url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
@@ -98,7 +98,7 @@
 
   - debug:
       var: endpointinfo
- 
+
   - name: Store authorization_endpoint for faster retrieval
     set_fact:
       authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -138,14 +138,14 @@
       var: authtoken
 
   - debug:
-      var: authtoken.json["access_token"]  
+      var: authtoken.json["access_token"]
 
   - name: Store access token into variable for easier retrieval
     set_fact:
       auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
   - debug:
-      var: auth_token  
+      var: auth_token
 
   # Retrieve IDP metadata descriptor and copy the 509 formatted certificate
   # https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/saml/descriptor
@@ -154,10 +154,10 @@
       url: "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml/descriptor"
 #     headers:
 #       Accept: "application/json"
-#       Authorization: "Bearer {{ auth_token }}" 
+#       Authorization: "Bearer {{ auth_token }}"
       method: get
       validate_certs: false
-      return_content: yes  
+      return_content: yes
     register: idp_metadata
 
   - debug:
@@ -171,13 +171,13 @@
 #       content: attribute
 #     register: instance_attributes
 
-  # We are going to save the XML metadate for shell processing    
+  # We are going to save the XML metadate for shell processing
   - name: Save IDP XML metadata to file for processing
     copy:
-      content: "{{  idp_metadata.content }}" 
+      content: "{{  idp_metadata.content }}"
       dest: /tmp/idp.xml
 
-  # We are going to use a shell command to retrieve the value for X509Certificate    
+  # We are going to use a shell command to retrieve the value for X509Certificate
   - name: Run xmlstarlet to retrieve X509Certificate
     shell:
       cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
@@ -224,7 +224,7 @@
       url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ bitwarden_client_id }}"
       headers:
         Accept: "application/json"
-        Authorization: "Bearer {{ auth_token }}" 
+        Authorization: "Bearer {{ auth_token }}"
       method: get
       validate_certs: false
     register: existingclient
@@ -248,7 +248,7 @@
       url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
       headers:
        Accept: "application/json"
-       Authorization: "Bearer {{ auth_token }}" 
+       Authorization: "Bearer {{ auth_token }}"
       method: DELETE
       validate_certs: false
       status_code: 204
@@ -294,29 +294,29 @@
 #       url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ bitwarden_client_id }}"
 #       headers:
 #        Accept: "application/json"
-#        Authorization: "Bearer {{ auth_token }}" 
+#        Authorization: "Bearer {{ auth_token }}"
 #       method: get
 #       validate_certs: false
 #     register: client1
 #     # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
-   
+
   - debug:
       msg: |
         ****************************************************************************************
         * Here some stuff you need to do yourself
         * - Login to your BitWarden server and open your Organization.
         *
-        * - Open the Settings tab and enter the following unique Identifier 
+        * - Open the Settings tab and enter the following unique Identifier
         *   for your organization "{{ organization_id }}"
         *
-        * Once you have your Organization Identifier, you can proceed to 
+        * Once you have your Organization Identifier, you can proceed to
         * enabling and configuring your integration. To enable Login with SSO
-        * From the Organization Vault, navigate to the Manage tab and 
+        * From the Organization Vault, navigate to the Manage tab and
         * select Single Sign-On from the left-hand menu.
         *
         * - On the Single Sign-On Screen, check the Allow SSO Authentication checkbox.
         * - From the Type dropdown menu, select the "SAML 2.0" option.
-        * 
+        *
         * == SAML Service Provider Configuration ==
         * - SP Entity ID should read "https://password.{{ domain }}/sso/saml2"
         * - SAML 2.0 Metadata URL should start with "https://password.{{ domain }}/sso/saml2/"
@@ -341,7 +341,7 @@
         * Go to top menu 'Vaults' -> "{{ organization_name }}".
         * Click the 3 dots to the right of the organization name and click on 'Link SSO'.
         *
-        * Notes; BitWarden allows per-organization logins based on valid redirect URLs containing 
+        * Notes; BitWarden allows per-organization logins based on valid redirect URLs containing
         *        a specific organization uuid. This playbook allows one redirect URLs.
         ********************************************************************************************
 

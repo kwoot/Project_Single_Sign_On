@@ -52,7 +52,7 @@
       apt:
         name: "{{ item }}"
       loop:
-        - postgresql 
+        - postgresql
         - zabbix-agent
         - zabbix-sender
         - zabbix-get
@@ -70,7 +70,7 @@
         - libxml2-utils
         - xmlstarlet
 
-    #  Edit file /etc/zabbix/zabbix_server.conf,  DBPassword=password 
+    #  Edit file /etc/zabbix/zabbix_server.conf,  DBPassword=password
     - name: Configure zabbix database password
       lineinfile:
         path: /etc/zabbix/zabbix_server.conf
@@ -93,7 +93,7 @@
     - name: Setup Zabbix Postgresql database
       become: true
       become_user: postgres
-      postgresql_db: 
+      postgresql_db:
         name: zabbix
         template: 'template0'
         owner: zabbix
@@ -108,15 +108,15 @@
       become_user: zabbix
       shell:
         cmd: zcat /usr/share/doc/zabbix-sql-scripts/postgresql/create.sql.gz | psql zabbix
-      when: dbwork.changed 
-     
+      when: dbwork.changed
+
     - name: (Re)start Zabbix agent
       ansible.builtin.systemd:
         name: zabbix-agent
         enabled: yes
         state: restarted
 
-    - name: Make SSL dir for nginx    
+    - name: Make SSL dir for nginx
       ansible.builtin.file:
         path: /etc/nginx/ssl
         state: directory
@@ -129,14 +129,14 @@
         owner: root
         group: root
         mode: '0600'
-      loop:  
+      loop:
         - _wildcard.{{ domain }}.pem
         - _wildcard.{{ domain }}-key.pem
 
     - name: Install nginx config file
       copy:
         src: files/zabbix_nginx.conf
-        dest: /etc/nginx/sites-available/default 
+        dest: /etc/nginx/sites-available/default
 
 
     # Docs describing a working setup. Zabbix currently only supports SAML out
@@ -153,7 +153,7 @@
         cmd: /usr/bin/openssl req -x509 -sha256 -newkey rsa:2048 -keyout sp.key -out sp.crt -days 3650 -nodes -subj '/CN={{ domain }}'
         chdir: /usr/share/zabbix/conf/certs
 
-    # Start getting auth token      
+    # Start getting auth token
     # Retrieve token url needed.  Returns JSON payload with var token-service.
     - name: Retrieve token url from server
       uri:
@@ -162,13 +162,13 @@
       register: tokenurl
 
     - debug:
-        var: tokenurl.json["token-service"] 
+        var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
       set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-    # Call info endpoint 
+    # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
       uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
@@ -177,7 +177,7 @@
 
     - debug:
         var: endpointinfo
-   
+
     - name: Store authorization_endpoint for faster retrieval
       set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -217,14 +217,14 @@
         var: authtoken
 
     - debug:
-        var: authtoken.json["access_token"]  
+        var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
       set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
     - debug:
-        var: auth_token  
+        var: auth_token
 
 
     # Retrieve IDP metadata descriptor and copy the 509 formatted certificate
@@ -234,10 +234,10 @@
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml/descriptor"
 #       headers:
 #         Accept: "application/json"
-#         Authorization: "Bearer {{ auth_token }}" 
+#         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
-        return_content: yes  
+        return_content: yes
       register: idp_metadata
 
     - debug:
@@ -251,13 +251,13 @@
 #       content: attribute
 #     register: instance_attributes
 
-    # We are going to save the XML metadate for shell processing    
+    # We are going to save the XML metadate for shell processing
     - name: Save IDP XML metadata to file for processing
       copy:
-        content: "{{  idp_metadata.content }}" 
+        content: "{{  idp_metadata.content }}"
         dest: /tmp/idp.xml
 
-    # We are going to use a shell command to retrieve the value for X509Certificate    
+    # We are going to use a shell command to retrieve the value for X509Certificate
     - name: Run xmlstarlet to retrieve X509Certificate
       shell:
         cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
@@ -289,7 +289,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ zabbix_client_id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -344,13 +344,13 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
- 
+
     - debug:
         var: deleteclient
 
@@ -379,7 +379,7 @@
         body: "{{ jsonbody }}"
         status_code: 201
       register: createclientresult
-   
+
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.{{ domain }}:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
@@ -401,7 +401,7 @@
 
     - name: Post-install message IT IS IMPORTANT TO READ THIS
       debug:
-        msg: |  
+        msg: |
           **********************************************************************************************************
           * After a fresh installation of Zabbix you need to run the setup process.
           * Visit zabbix.{{ domain }}
@@ -421,9 +421,9 @@
           *
           * Configure users in Zabbix to use SAML
           * - Make sure every Zabbix user account is in email address format user@fqdn.
-          * - In Keycloak make sure every user has in the Attributes tab an attribute called 'zabbixuser' 
+          * - In Keycloak make sure every user has in the Attributes tab an attribute called 'zabbixuser'
           *   containing that same email address.
-          * 
+          *
           * Now login to Zabbix not by entering userid/password.
           * But by clicking on the 'Sign in with Single Sign-On (SAML)' link.
           **********************************************************************************************************

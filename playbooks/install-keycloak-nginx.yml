@@ -1,5 +1,5 @@
 ---
-- name: Install central Keycloak Kerberos server on Ubuntu 
+- name: Install central Keycloak Kerberos server on Ubuntu
   hosts: grpad
   remote_user: root
 
@@ -26,7 +26,7 @@
 
     # Install all needed software in one go.
     # apt install -y ca-certificates curl openssh-server
-    - name: Install all needed packages 
+    - name: Install all needed packages
       apt:
         name: "{{ item }}"
       loop:
@@ -47,7 +47,7 @@
       apt:
         name: apache2
         state: absent
-    
+
     - name: Set timezone to Europe/Amsterdam
       timezone:
         name: Europe/Amsterdam
@@ -99,7 +99,7 @@
         force: yes
 
 
-    - name: Unzip Keycloak distribution zip file 
+    - name: Unzip Keycloak distribution zip file
       ansible.builtin.unarchive:
         src: "/root/keycloak-{{ keycloak_release }}.zip"
         dest: /opt/
@@ -119,7 +119,7 @@
     - name: Setup Keycloak Postgresql database
       become: true
       become_user: postgres
-      postgresql_db: 
+      postgresql_db:
         name: keycloak
         template: 'template0'
         owner: keycloak
@@ -128,13 +128,13 @@
     # Install Systemd service definition
     # TODO: file currently contains hard-coded password. Needs vault someday.
     - name: Upload Systemd service definition
-      template: 
+      template:
         src: keycloak.service
         dest: /etc/systemd/system/keycloak.service
         owner: root
         group: root
 
-    - name: Force systemd to reread configs 
+    - name: Force systemd to reread configs
       ansible.builtin.systemd:
         daemon_reload: yes
 
@@ -157,7 +157,7 @@
       file:
         path: "/tmp/{{ domain }}.p12"
         owner: 'keycloak'
- 
+
     - name: "Import wildcard key for {{ domain }}  into keycloak keystore file"
       become: true
       become_user: keycloak
@@ -197,7 +197,7 @@
         enabled: yes
         state: restarted
 
-    - name: Make SSL dir for nginx    
+    - name: Make SSL dir for nginx
       ansible.builtin.file:
         path: /etc/nginx/ssl
         state: directory
@@ -210,11 +210,11 @@
         owner: root
         group: root
         mode: '0600'
-      loop:  
+      loop:
         - _wildcard.{{ domain }}.pem
         - _wildcard.{{ domain }}-key.pem
 
-    - name: Install nginx reverse proxy virtualhost for Keycloak 
+    - name: Install nginx reverse proxy virtualhost for Keycloak
       template:
         src: "keycloak_nginx.conf.j2"
         dest: "/etc/nginx/sites-available/keycloak"

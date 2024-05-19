@@ -50,7 +50,7 @@
         filename: jenkins
 
     #Update your local package index, then finally install Jenkins:
-    - name: Update repositories cache 
+    - name: Update repositories cache
       apt:
         update_cache: yes
 
@@ -68,15 +68,15 @@
         - ca-certificates
         - curl
         - openssh-server
-        - mlocate  
-        - openssl  
+        - mlocate
+        - openssl
         - autopostgresqlbackup
         - jenkins
         - nginx
 
 #   - name: Disable Jenkins useSecurity in /var/lib/jenkins/config.xml so we can edit the configuration at the end of this playbook.
 #     lineinfile:
-#       path: /var/lib/jenkins/config.xml 
+#       path: /var/lib/jenkins/config.xml
 #       regexp: ".*<useSecurity>.*</useSecurity>"
 #       line: '  <useSecurity>false</useSecurity>'
 
@@ -102,8 +102,8 @@
         name: nginx
         state: present
 
-      
-    - name: Upload mkcert program 
+
+    - name: Upload mkcert program
       copy:
         src: files/mkcert
         dest: /root/mkcert
@@ -130,7 +130,7 @@
 
     - name: Update all CA certificates
       shell:
-        cmd: /usr/sbin/update-ca-certificates 
+        cmd: /usr/sbin/update-ca-certificates
 
     # Check if our CA is already installed
     # Should be /usr/local/share/ca-certificates/mkcert_development_CA_62268663181785622328732999788222374785.crt
@@ -141,10 +141,10 @@
 
     - name: Is our root CA already present?
       debug:
-        msg: "Yes it is!" 
+        msg: "Yes it is!"
       when: root_ca_stat.stat.exists
 
- 
+
     # Install nginx config file
     - name: Install nginx config file
       template:
@@ -165,13 +165,13 @@
       register: tokenurl
 
     - debug:
-        var: tokenurl.json["token-service"] 
+        var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
       set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-    # Call info endpoint 
+    # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
       uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
@@ -180,7 +180,7 @@
 
     - debug:
         var: endpointinfo
-   
+
     - name: Store authorization_endpoint for faster retrieval
       set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -220,19 +220,19 @@
         var: authtoken
 
     - debug:
-        var: authtoken.json["access_token"]  
+        var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
       set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
     - debug:
-        var: auth_token  
+        var: auth_token
 
     #######################################################################################
     # Very badly documented: The admin RESTful API has a base path /admin/realms/
     #######################################################################################
-    
+
     # Retrieve current list of clients of our type
     # So, this works in curl:
     # curl -k -v -H "Accept: application/json" -H "Authorization: Bearer ${access_token}" "https://ad.{{ domain }}:8443/admin/realms/master/clients" | jq .
@@ -241,7 +241,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ jenkins_client_id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -256,13 +256,13 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
- 
+
     - debug:
         var: deleteclient
 
@@ -315,7 +315,7 @@
 
 #   - name: What did we receive?
 #     debug:
-#       var: client_representation 
+#       var: client_representation
 
 #   # Good news! Result contains location of new client id in location
 #   # Example: "location": "https://ad.{{ domain }}:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
@@ -329,7 +329,7 @@
         url: "{{ createclientresult.location }}/client-secret"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: clientsecret
@@ -341,12 +341,12 @@
 
     # We have to create 2 groups in Keycloak for Jenkins: Jenkins-admin and Jenkins-user
     # First retrieve current list of configured groups
-    - name: Retrieve current list of groups 
+    - name: Retrieve current list of groups
       uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/groups"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: kc_groups
@@ -376,7 +376,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/groups?search={{ item }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       with_items:
@@ -388,7 +388,7 @@
       debug:
         var: groupinfo
 
-    # Create groups if not exist, else ignore errors    
+    # Create groups if not exist, else ignore errors
     - name: Create groups Jenkins-admin and Jenkins-user or ignore errors
       uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/groups"
@@ -405,12 +405,12 @@
         - Jenkins-user
       ignore_errors: yes
 
-    - name: Retrieve current list of groups 
+    - name: Retrieve current list of groups
       uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/groups"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: kc_groups
@@ -437,7 +437,7 @@
         path:  /etc/nginx/sites-enabled/default
         state: absent
 
-    - name: Make SSL dir for nginx    
+    - name: Make SSL dir for nginx
       ansible.builtin.file:
         path: /etc/nginx/ssl
         state: directory
@@ -450,11 +450,11 @@
         owner: root
         group: root
         mode: '0600'
-      loop:  
+      loop:
         - _wildcard.{{ domain }}.pem
         - _wildcard.{{ domain }}-key.pem
 
-#   - name: Install Nginx reverse proxy virtualhost for Keycloak 
+#   - name: Install Nginx reverse proxy virtualhost for Keycloak
 #     copy:
 #       src: "files/jenkins_nginx.conf"
 #       dest: "/etc/nginx/sites-available/jenkins"
@@ -481,10 +481,10 @@
       retries: 55
       delay: 10
 #     ignore_errors: yes
-        
+
     - debug:
         msg: "Done waiting for 443"
- 
+
     # Default user: admin
     # Default password: $JENKINS_HOME/secrets/initialAdminPassword
     - name: "Retrieve initialAdminPassword from JENKINS_HOME/secrets/initialAdminPassword"
@@ -493,7 +493,7 @@
       register: admin_password_encoded
       ignore_errors: yes
 
-    - name: Decode initialAdminPassword 
+    - name: Decode initialAdminPassword
       set_fact:
         admin_password: "{{ admin_password_encoded.content | b64decode | trim }}"
       ignore_errors: yes
@@ -510,7 +510,7 @@
           ********************************************************************************************************
           * After a fresh installation Jenkins offers no way to configure SSO using Ansible or the command line.
           * Sure you can enable remote admin options, but you might just as well configure SSO from the GUI.
-          *  
+          *
           * Default Administrator account name is 'admin'
           * The password for your installation is: "{{ admin_password }}"
           *
@@ -520,26 +520,26 @@
           * - Select the 'Install suggested plugins' button to create a default installation.
           * - When presented with the 'Create First Admin User' click 'Skip and continue as Admin'.
           * - Confirm or edit the Jenkins URL in the 'Instance Configuration' screen and click 'Save and Finish'
-          * - The following message will appear 
-          *          You have skipped the setup of an admin user.  
+          * - The following message will appear
+          *          You have skipped the setup of an admin user.
           *          To log in, use the username: "admin" and the administrator password you used to access the setup wizard.
-          * - Click the 'Start using Jenkins' button. 
+          * - Click the 'Start using Jenkins' button.
           * - At the moment, the file /var/lib/jenkins/secrets/initialAdminPassword still contains the admin password.
           *
           * - Time to configure SSO
           * - Go in the Jenkins GUI to 'Manage Jenkins' → 'Manage Plugins', url = "{{ jenkins_server_url }}/pluginManager/"
           * - Go to the 'available' tab ("{{ jenkins_server_url }}/pluginManager/available") and enter 'OpenId' in the search field.
           * - Select the checkbox of the 'OpenId Connect Authentication' plugin and click the 'Install without restart' button.
-          * - If you like you can verify the installation by going to the 'Installed' tab 
+          * - If you like you can verify the installation by going to the 'Installed' tab
           *   ("{{ jenkins_server_url }}/pluginManager/installed")
           *
-          * - Once you have installed the OpenId plugin. you need to change the authentication mode of the Jenkins server. 
+          * - Once you have installed the OpenId plugin. you need to change the authentication mode of the Jenkins server.
           * - Go to "Manage Jenkins" -> "Configure Global Security" ("{{ jenkins_server_url }}/configureSecurity/"
-          * - Under the 'Authentication' section, Change the pull-down list of 'Security Realm' ('Beveiligingszone') 
+          * - Under the 'Authentication' section, Change the pull-down list of 'Security Realm' ('Beveiligingszone')
           *   section to 'Login with openid Connect' option.
           * - Enter in the "Client id" field the value "{{ jenkins_client_id }}"
           * - Enter in the "Client secret" field the value "{{ client_secret }}"
-          * - Select as the "Configuration mode" the option "Automatic configuration" and enter as the "Well-known configuration endpoint" 
+          * - Select as the "Configuration mode" the option "Automatic configuration" and enter as the "Well-known configuration endpoint"
           *   the value "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration" and press the TAB-key afterwards.
           * - Open the "Advanced" part of this configuration section
           *   - Enter in the "User name field name" the text 'sub'
@@ -557,7 +557,7 @@
 
     # Information about debugging Jenkins
     # journalctl -u jenkins.service
-    
+
     # cat  /var/lib/jenkins/logging-jb.properties
 
     #handlers = java.util.logging.ConsoleHandler
@@ -575,10 +575,10 @@
 
     # vim /etc/default/jenkins
     # add to last JENKINS:   -Djava.util.logging.config.file=/var/lib/jenkins/logging-jb.properties
-    
+
     # Settings found in
     # org.jenkinsci.plugins.KeycloakSecurityRealm.xml:  &quot;auth-server-url&quot;: &quot;https://ad.{{ domain }}/&quot;
 
-    # plugin  	OpenId Connect Authentication Version 1.8 Authentication and User Management 
+    # plugin  	OpenId Connect Authentication Version 1.8 Authentication and User Management
     # https://ad.{{ domain }}:8443/realms/ONESTEIN.LAN/.well-known/openid-configuration
 

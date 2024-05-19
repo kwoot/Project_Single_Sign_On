@@ -24,7 +24,7 @@
       include_vars: encrypted-vars.yml
 
 
-    - name: Update repositories cache 
+    - name: Update repositories cache
       apt:
         update_cache: yes
 
@@ -53,7 +53,7 @@
         path:  /root/cmdbuild-3.4.war
       register: warfile_stat
 
-    
+
 
     # Download cmdbuild-3.4.war via cmdbuild.org
     - name: Download CMDbuild war file with big timeout value (because it comes from Sourceforge...)
@@ -73,8 +73,8 @@
         dest: /var/lib/tomcat9/webapps/cmdbuild.war
         remote_src: yes
         mode: '0644'
-  
- 
+
+
     # add system group cmdbuild
     - name: Ensure group "cmdbuild" exists
       ansible.builtin.group:
@@ -103,12 +103,12 @@
         name: cmdbuild
         password: 'cmdbuild'
         #priv: "CONNECT"
-        
+
     # postgresql create database cmdbuild owner cmdbuild
     - name: Make sure cmdbuild Postgresql database exists.
       become: true
       become_user: postgres
-      postgresql_db: 
+      postgresql_db:
         name: cmdbuild
         template: 'template0'
         owner: cmdbuild
@@ -160,16 +160,16 @@
           db.username=cmdbuild
           db.password=cmdbuild
           db.admin.username=postgres
-          db.admin.password=postgres  
- 
+          db.admin.password=postgres
+
 
     # Set up nginx
     - name: Install nginx config file
       copy:
         src: files/cmdb_nginx.conf
-        dest: /etc/nginx/sites-available/default 
+        dest: /etc/nginx/sites-available/default
 
-    - name: Make SSL dir for nginx    
+    - name: Make SSL dir for nginx
       ansible.builtin.file:
         path: /etc/nginx/ssl
         state: directory
@@ -182,13 +182,13 @@
         owner: root
         group: root
         mode: '0600'
-      loop:  
+      loop:
         - _wildcard.{{ domain }}.pem
         - _wildcard.{{ domain }}-key.pem
 
     # Restart nginx
     - name: Restart nginx
-      systemd: 
+      systemd:
         name: nginx
         state: restarted
         enabled: yes
@@ -201,17 +201,17 @@
     # We can create a SAML client at the Keycloak side.  And use REST to
     # configure at the CMDBuild side.
 
-    ####################################################    
+    ####################################################
     # Create a SAML client at the Keycloak side.
-    ####################################################    
-     
+    ####################################################
+
     # Generate a key on the cmdb server
     - name: Generate key on cmdb server
       shell:
         cmd: /usr/bin/openssl req -x509 -sha256 -newkey rsa:1024 -keyout sp.key -out sp.crt -days 3650 -nodes -subj '/CN={{ domain }}'
         chdir: /tmp
 
-    # Start getting auth token      
+    # Start getting auth token
     # Retrieve token url needed.  Returns JSON payload with var token-service.
     - name: Retrieve token url from server
       uri:
@@ -220,13 +220,13 @@
       register: tokenurl
 
     - debug:
-        var: tokenurl.json["token-service"] 
+        var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
       set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
-    # Call info endpoint 
+    # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
       uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
@@ -235,7 +235,7 @@
 
     - debug:
         var: endpointinfo
-   
+
     - name: Store authorization_endpoint for faster retrieval
       set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
@@ -275,14 +275,14 @@
         var: authtoken
 
     - debug:
-        var: authtoken.json["access_token"]  
+        var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
       set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
     - debug:
-        var: auth_token  
+        var: auth_token
 
     # Retrieve IDP metadata descriptor and copy the 509 formatted certificate
     # https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/saml/descriptor
@@ -291,7 +291,7 @@
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml/descriptor"
         method: get
         validate_certs: false
-        return_content: yes  
+        return_content: yes
       register: idp_metadata
 
     - debug:
@@ -305,13 +305,13 @@
 #       content: attribute
 #     register: instance_attributes
 
-    # We are going to save the XML metadate for shell processing    
+    # We are going to save the XML metadate for shell processing
     - name: Save IDP XML metadata to file for processing
       copy:
-        content: "{{  idp_metadata.content }}" 
+        content: "{{  idp_metadata.content }}"
         dest: /tmp/idp.xml
 
-    # We are going to use a shell command to retrieve the value for X509Certificate    
+    # We are going to use a shell command to retrieve the value for X509Certificate
     - name: Run xmlstarlet to retrieve X509Certificate
       shell:
         cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
@@ -357,7 +357,7 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ cmdb_client_id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -381,13 +381,13 @@
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" 
+         Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
- 
+
     - debug:
         var: deleteclient
 
@@ -416,7 +416,7 @@
         body: "{{ jsonbody }}"
         status_code: 201
       register: createclientresult
-   
+
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.{{ domain }}:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
@@ -425,10 +425,10 @@
 
     # So far, so good
     #
-    ####################################################    
+    ####################################################
     # Configure CMDBuild authentication.
-    ####################################################    
-    # I tried to use the editconfig (/cmdbuild.sh restws editconfig)to set values 
+    ####################################################
+    # I tried to use the editconfig (/cmdbuild.sh restws editconfig)to set values
     # or example:cmdbuild.sh restws setconfig org.cmdbuild.dms.enabled true
     # Well, cmdbuild.sh restws is not documented and tough to reverse engineer.
     #
@@ -454,11 +454,11 @@
     # This can also be done using REST calls, but you need to make the auth.conf file readable, so we do it this way.
 
     # We end now. But if we want to do rest stuff, uncomment below and poll first until online
-    
+
     # The next things only works after adding ReadWritePaths=/etc/tomcat9/cmdbuild/ to /lib/systemd/system/tomcat9.service
     - name: Add  ReadWritePaths=/etc/tomcat9/cmdbuild/ to /lib/systemd/system/tomcat9.service so we can edit the config.
       lineinfile:
-        path: /lib/systemd/system/tomcat9.service 
+        path: /lib/systemd/system/tomcat9.service
         insertafter: '^ReadWritePaths=/var/log/tomcat9/.*'
         line: 'ReadWritePaths=/etc/tomcat9/cmdbuild/'
     - name: Do a systemd daemon-reload now
@@ -466,7 +466,7 @@
         daemon_reload: true
     # Restart tomcat9
     - name: Restart tomcat9
-      systemd: 
+      systemd:
         name: tomcat9
         state: restarted
         enabled: yes
@@ -474,8 +474,8 @@
     - debug:
         msg: "Start waiting for 443 to become available"
 
-    - wait_for: 
-        port: 443 
+    - wait_for:
+        port: 443
         delay: 20
 
     # Measured 12 attempts, so 25 max should work most of the time.
@@ -490,7 +490,7 @@
       until: amiup.status == 403
       retries: 25 # 25 * 5 seconds = 1hour (60*60/5)
       delay: 5 # Every 5 seconds
-        
+
 #   - fail:
 #     msg:
 #       "* There was an error starting the tomcat server"
@@ -547,7 +547,7 @@
         headers: { 'Cmdbuild-authorization': "{{ sessionid }}" }
 
 
-    # Now we know this is stored in auth.conf as module.saml.idp.id  
+    # Now we know this is stored in auth.conf as module.saml.idp.id
     - name: Set value of org.cmdbuild.auth.module.saml.idp.id to "{{ keycloak_server_url }}"
       uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.id"
@@ -659,7 +659,7 @@
         headers: { 'Cmdbuild-authorization': "{{ sessionid }}" }
         body:
           "{{ cmdb_base_url }}"
- 
+
     - name: Set value of org.cmdbuild.auth.module.saml.idp.login to "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"
       uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.login"
@@ -690,7 +690,7 @@
         headers: { 'Cmdbuild-authorization': "{{ sessionid }}" }
         body:
           "login = auth.getNameId()"
- 
+
     # Try to enable saml module
     - name: Set value of org.cmdbuild.auth.module.saml.enabled to "True"
       uri:
@@ -712,7 +712,7 @@
         headers: { 'Cmdbuild-authorization': "{{ sessionid }}" }
         body:
           "True"
-      
+
     # Werkt goed.
     - name: Signal CMDBuild to reload system configuration
       uri:
@@ -728,7 +728,7 @@
     # decided to try adding saml to the login modules variable I saw there.
     # org.cmdbuild.auth.modules=default,saml
     # The SSO cannot be enabled from the UI, you can do it with the following
-    # command: 
+    # command:
     #   bash cmdbuild.sh restws -username "{{ cmdb_admin_id }}" -password "{{ cmdb_admin_pw }}" setconfig org.cmdbuild.auth.modules saml,default
     # (this configuration means that both saml and the default login are enabled)
     - name: Add SSO to internal db login method
