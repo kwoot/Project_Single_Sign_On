@@ -2,9 +2,6 @@
 - name: Install FreeIPA server
   hosts: all
   remote_user: root
-  become: true
-  become_user: root
-  become_method: sudo
 
   # use this command line: ansible-playbook  -vvv  --ask-pass  --ask-become-pass  setup-new-server.yml  -i 10.1.1.158,  -u jeroen
 
@@ -12,15 +9,16 @@
     ansible_python_interpreter: /usr/bin/python3
 
   tasks:
-    - debug:
+    - name: Show tip for better output
+      ansible.builtin.debug:
         msg: Readable debug output  export ANSIBLE_STDOUT_CALLBACK=debug
 
 
     - name: Read global vars
-      include_vars: global-vars.yml
+      ansible.builtin.include_vars: global-vars.yml
 
     - name: Read encrypted content
-      include_vars: encrypted-vars.yml
+      ansible.builtin.include_vars: encrypted-vars.yml
 
     - name: Set hostname ipa.{{ domain }}
       ansible.builtin.hostname:
@@ -29,29 +27,31 @@
     # remove 127.0.0.1 ipa.{{ domain }} ipa from /etc/hosts
     # remove ::1 ipa.{{ domain }} ipa from /etc/hosts
     - name: Make sure the IPA Server hostname does not resolve to localhost on v4 and v6
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/hosts
         regexp: ipa.{{ domain }}
         state: absent
 
     - name: Add hostname to /etc/hosts
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: /etc/hosts
         block: |
-          {{ item.ip }} {{ item.name }} {{item.shortname}}
+          {{ item.ip }} {{ item.name }} {{ item.shortname }}
         marker: "# {mark} ANSIBLE MANAGED BLOCK {{ item.name }}"
       loop:
-        - { name: ipa.{{ domain }}, shortname: ipa, ip: 10.11.1.242 }
+        - { name: "ipa.{{ domain }}", shortname: ipa, ip: 10.11.1.242 }
 
     - name: Set timezone to Europe/Amsterdam
       community.general.timezone:
         name: Europe/Amsterdam
 
     - name: Disable selinux
-      shell:
+      ansible.builtin.command:
         cmd: setenforce 0
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
-    - name: edit selinux in /etc/selinux/config
+    - name: Edit selinux in /etc/selinux/config
       ansible.builtin.lineinfile:
         path: /etc/selinux/config
         regexp: '^SELINUX='
@@ -60,9 +60,11 @@
     # yum -y install @idm:DL1
     # Using shell module because well, it just didn't work any other way
     - name: Enable freeipa repo stream
-      shell:
+      ansible.builtin.command:
         cmd: yum -y install @idm:DL1
         warn: false
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     # # dnf install freeipa-server
     # Note that the installed package just contains all the bits that FreeIPA uses, it does not configure the actual server.
@@ -70,9 +72,9 @@
     # # dnf install freeipa-server-dns
 
     - name: Install freeipa-server
-      dnf:
+      ansible.builtin.dnf:
         name: freeipa-server
-        state: latest
+        state: present
 
     # Configure a FreeIPA server.
     # The command can take command arguments or can be run in the interactive mode.
@@ -80,7 +82,8 @@
     # To start the interactive installation, run:
     # ipa-server-install
     # The command will at first gather all required information and then configure all required services.
-    - debug:
+    - name: Show optional command
+      ansible.builtin.debug:
         msg: "To start the interactive installation, run: ipa-server-install"
 
     # Yes, we could automate this with Ansible vault and expect stuff, but we don't
@@ -150,4 +153,3 @@
     #
     # Continue to configure the system with these values? [no]: yes
     #
-

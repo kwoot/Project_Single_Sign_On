@@ -2,9 +2,7 @@
 - name: Install gitlab on Ubuntu 20.04
   hosts: grpgitlab
   remote_user: root
-  become: true
-  become_user: root
-  become_method: sudo
+
 
   # Execute ansible-playbook playbookfile.yml -i hosts --vault-password-file .vault-password
 
@@ -18,7 +16,8 @@
     realm: "{{ realm }}"
 
   tasks:
-    - debug:
+    - name: Show tip for sensible output
+      ansible.builtin.debug:
         msg: Readable debug output  export ANSIBLE_STDOUT_CALLBACK=debug
 
     - name: Read global vars
@@ -28,7 +27,7 @@
       include_vars: encrypted-vars.yml
 
     - name: Shutdown GitLab if already exists and ignore any errors
-      shell:
+      ansible.builtin.shell:
         cmd: gitlab-ctl stop
       ignore_errors: yes
 
@@ -39,7 +38,7 @@
     # Install all needed software in one go.
     # apt install -y ca-certificates curl openssh-server
     - name: Install GitLab and other packages
-      apt:
+      ansible.builtin.apt:
         name: "{{ item }}"
         state: present
         update_cache: yes
@@ -52,7 +51,7 @@
         - autopostgresqlbackup
 
     - name: Upload mkcert program
-      copy:
+      ansible.builtin.copy:
         src: files/mkcert
         dest: /root/mkcert
         owner: root
@@ -61,7 +60,7 @@
         force: true
 
     - name: Upload CA key and cert
-      copy:
+      ansible.builtin.copy:
         src: "files/{{ item }}"
         dest: "/root/{{ item }}"
         owner: root
@@ -73,46 +72,46 @@
         - rootCA-key.pem
 
     - name: Try to install my root CA on this system
-      shell:
+      ansible.builtin.shell:
         cmd: CAROOT=/root /root/mkcert -install
 
     - name: Update all CA certificates
-      shell:
+      ansible.builtin.shell:
         cmd: /usr/sbin/update-ca-certificates
 
     # Check if our CA is already installed
     # Should be /usr/local/share/ca-certificates/mkcert_development_CA_62268663181785622328732999788222374785.crt
     - name: Verify that our root CA is already installed
-      stat:
+      ansible.builtin.stat:
         path: "{{ root_ca_path }}"
       register: root_ca_stat
 
     - name: Is our root CA already present?
-      debug:
+      ansible.builtin.debug:
         msg: "Yes it is!"
       when: root_ca_stat.stat.exists
 
     # Start installation of GitLab
     - name: Download repo add script.
-      get_url:
+      ansible.builtin.get_url:
         url: https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.deb.sh
         dest: /tmp/script.deb.sh
         mode: '0700'
 
     - name: execute repo add script
-      shell:
+      ansible.builtin.shell:
         cmd: /tmp/script.deb.sh
 
     ########################################################
     # After this step we should have a GitLab installation #
     ########################################################
     - name: Install gitlab-ce
-      apt:
+      ansible.builtin.apt:
         name: gitlab-ce
 
     # fix external_url 'http://gitlab.example.com'
     - name: Configure gitlab-ce url
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/gitlab/gitlab.rb
         regexp: "external_url.*"
         line: "external_url 'https://gitlab.{{ domain }}'"
@@ -120,7 +119,7 @@
     # Disable GitLab LetsEncrypt support as mentioned on their page
     # letsencrypt['enable'] = false in /etc/gitlab/gitlab.rb
     - name: Make sure LetsEncrypt is disabled
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/gitlab/gitlab.rb
         regexp: ".*letsencrypt['enable'].*"
         line: letsencrypt['enable'] = false
@@ -147,7 +146,7 @@
         mode: '0755'
 
     - name: Upload CA key and cert into gitlab trusted-certs store
-      copy:
+      ansible.builtin.copy:
         src: "files/rootCA.pem"
         dest: "/etc/gitlab/trusted-certs/rootCA.pem"
         owner: root
@@ -166,7 +165,7 @@
     # place the .crt and .key files in the directory and specify the following configuration:
 
     - name: Copy SSL cert to gitlab ssl certs dir /etc/gitlab/ssl
-      copy:
+      ansible.builtin.copy:
         src: "files/_wildcard.{{ domain }}.pem"
         dest: "/etc/gitlab/ssl/gitlab.{{ domain }}.crt"
         owner: root
@@ -174,7 +173,7 @@
         mode: '0600'
 
     - name: Copy SSL key to gitlab ssl certs dir /etc/gitlab/ssl
-      copy:
+      ansible.builtin.copy:
         src: "files/_wildcard.{{ domain }}-key.pem"
         dest: "/etc/gitlab/ssl/gitlab.{{ domain }}.key"
         owner: root
@@ -184,65 +183,69 @@
     # Remove old LDAP stuff
     # gitlab_rails['ldap_enabled'] = true
     - name: Remove if enable ldap setting in GitLab config file
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/gitlab/gitlab.rb
         regexp: ".*gitlab_rails['ldap_enabled'].*"
         state: absent
 
     # gitlab_rails['ldap_servers'] = YAML.load_file('/etc/gitlab/gitlab_freeipa_settings.yml')
     - name: Remove if exists reference to LDAP settings file
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/gitlab/gitlab.rb
         line: "gitlab_rails['ldap_servers'].*"
         state: absent
 
     # Retrieve token url needed.  Returns JSON payload with var token-service.
     - name: Retrieve token url from server
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/realms/master"
         validate_certs: false
       register: tokenurl
 
-    - debug:
+    - name: Show token-service
+      ansible.builtin.debug:
         var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
     # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
         validate_certs: false
       register: endpointinfo
 
-    - debug:
+    - name: Show endpoint info
+      ansible.builtin.debug:
         var: endpointinfo
 
     - name: Store authorization_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
 
     # "authorization_endpoint": "https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/openid-connect/auth",
-    - debug:
+    - name: Show authorization_endpoint
+      ansible.builtin.debug:
         var: authorization_endpoint
 
     - name: Store token_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         token_endpoint: "{{ endpointinfo.json[\"token_endpoint\"] }}"
     - debug:
         var: token_endpoint
 
     - name: Store userinfo_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         userinfo_endpoint: "{{ endpointinfo.json[\"userinfo_endpoint\"] }}"
-    - debug:
+    - name: Show userinfo endpoint
+      ansible.builtin.debug:
         var: userinfo_endpoint
 
     # Get authentication token from token-service url
     - name: Retrieve authentication token from token-service url
-      uri:
+      ansible.builtin.uri:
         url: "{{ tokenurl.json[\"token-service\"] }}/token"
         method: POST
         body_format: form-urlencoded
@@ -255,17 +258,20 @@
           grant_type: password
       register: authtoken
 
-    - debug:
+    - name: Show current authtoken
+      ansible.builtin.debug:
         var: authtoken
 
-    - debug:
+    - name: show access_token
+      ansible.builtin.debug:
         var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
-    - debug:
+    - name: Show auth_token
+      ansible.builtin.debug:
         var: auth_token
 
     #######################################################################################
@@ -276,7 +282,7 @@
     # So, this works in curl:
     # curl -k -v -H "Accept: application/json" -H "Authorization: Bearer ${access_token}" "https://ad.{{ domain }}:8443/admin/realms/master/clients" | jq .
     - name: Retrieve current list of clients and search for already existing "{{ gitlab_client_id }} "
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ gitlab_client_id }}"
         headers:
          Accept: "application/json"
@@ -286,12 +292,12 @@
       register: existingclient
 
     - name: Find ID in returned json
-      debug:
+      ansible.builtin.debug:
         var: existingclient.json[0].id
 
     - name: Delete client id  "{{ gitlab_client_id }}" if it already exists.
       # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
@@ -302,16 +308,17 @@
       when: existingclient.json[0].id is defined
       register: deleteclient
 
-    - debug:
+    - name: Show deleteclient variable
+      ansible.builtin.debug:
         var: deleteclient
 
     - name: Convert Ninja template to variable
-      set_fact:
+      ansible.builtin.set_fact:
         jsonbody: "{{ lookup('template', 'gitlab-keycloak-sso.json.j2') }}"
 
     # Generate the json payload to upload
     - name: Upload JSON template file to create new Client ID on Keycloak server
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients"
         headers:
          Accept: "application/json"
@@ -326,13 +333,13 @@
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.{{ domain }}:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
-      debug:
+      ansible.builtin.debug:
         var: createclientresult.location
 
     # After importing this to Keycloak, you have to generate a new Client-Secret and put it into gitabl.rb file .
     # GET /{realm}/clients/{id}/client-secret
     - name: Retrieve secret for newly created client "{{ gitlab_client_id }} "
-      uri:
+      ansible.builtin.uri:
         url: "{{ createclientresult.location }}/client-secret"
         headers:
          Accept: "application/json"
@@ -342,12 +349,12 @@
       register: clientsecret
 
     - name: Store secret for easy retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         client_secret: "{{ clientsecret.json.value }}"
 
     # gitlab_rails['omniauth_enabled'] = true
     - name: Configure omniauth_enabled
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/gitlab/gitlab.rb
         regexp: ".*gitlab_rails['omniauth_enabled'].*"
         line: "gitlab_rails['omniauth_enabled'] = true"
@@ -357,7 +364,7 @@
     # Automatically created upon first sign in with the LDAP integration.
     # Created when first signing in using an OmniAuth provider if the allow_single_sign_on setting is present.
     - name: Configure omniauth_allow_single_sign_on
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/gitlab/gitlab.rb
         regexp: ".*gitlab_rails['omniauth_allow_single_sign_on'].*"
         line: "gitlab_rails['omniauth_allow_single_sign_on'] = true"
@@ -365,7 +372,7 @@
 
     # gitlab_rails['omniauth_block_auto_created_users'] = false
     - name: Configure omniauth_block_auto_created_users
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/gitlab/gitlab.rb
         regexp: ".*gitlab_rails['omniauth_block_auto_created_users'].*"
         line: "gitlab_rails['omniauth_block_auto_created_users'] = true"
@@ -400,18 +407,19 @@
           } ]
 
     - name: Run GitLab reconfiguration script
-      shell:
+      sansible.builtin.hell:
         cmd: gitlab-ctl reconfigure
 
     - name: Start GitLab
-      shell:
+      ansible.builtin.shell:
         cmd: gitlab-ctl start
 
-    - debug:
+    - name: Show that we start to wait
+      ansible.builtin.debug:
         msg: "Start waiting for 443"
 
     - name: Wait for port 443 to become open on the host
-      uri:
+      ansible.builtin.uri:
         url: "https://gitlab.{{ domain }}/users/sign_in"
         status_code: 200
       register: result
@@ -420,19 +428,21 @@
       retries: 25
       delay: 10
 
-    - debug:
+    - name: Shwo that we are done waiting
+      ansible.builtin.debug:
         msg: "Done waiting for 443"
 
     - name: Check openssl config
-      shell:
+      ansible.builtin.shell:
         cmd: /opt/gitlab/embedded/bin/openssl s_client -connect localhost:443 </dev/null
       register: opensslconf
 
-    - debug:
+    - name: Show opensslconf
+      ansible.builtin.debug:
         var: opensslconf
 
     - name: Post-install message IT IS IMPORTANT TO READ THIS
-      pause:
+      ansible.builtin.pause:
         seconds: 1
         prompt: |
           ********************************************************************************************************

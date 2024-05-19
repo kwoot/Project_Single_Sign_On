@@ -2,9 +2,6 @@
 - name: Install CMDBuild
   hosts: grpcmdb
   remote_user: root
-  become: true
-  become_user: root
-  become_method: sudo
 
   # use this command line: ansible-playbook -v -i hosts install-cmdb.yml -u root
   # Execute ansible-playbook playbookfile.yml -i hosts --vault-password-file .vault-password
@@ -14,26 +11,27 @@
     cmdb_client_id: "client-cmdb"
 
   tasks:
-    - debug:
+    - name: Show tip for sensible output
+      ansible.builtin.debug:
         msg: Readable debug output  export ANSIBLE_STDOUT_CALLBACK=debug
 
     - name: Read global vars
-      include_vars: global-vars.yml
+      ansible.builtin.include_vars: global-vars.yml
 
     - name: Read encrypted content
-      include_vars: encrypted-vars.yml
+      ansible.builtin.include_vars: encrypted-vars.yml
 
 
     - name: Update repositories cache
-      apt:
-        update_cache: yes
+      ansible.builtin.apt:
+        update_cache: true
 
     - name: Set timezone to Europe/Amsterdam
       community.general.timezone:
         name: Europe/Amsterdam
 
     - name: Install needed packages
-      apt:
+      ansible.builtin.apt:
         name: "{{ item }}"
         state: present
       loop:
@@ -49,8 +47,8 @@
         - xmlstarlet
 
     - name: Check if war file already downloaded
-      stat:
-        path:  /root/cmdbuild-3.4.war
+      ansible.builtin.stat:
+        path: /root/cmdbuild-3.4.war
       register: warfile_stat
 
 
@@ -58,20 +56,20 @@
     # Download cmdbuild-3.4.war via cmdbuild.org
     - name: Download CMDbuild war file with big timeout value (because it comes from Sourceforge...)
       # sudo wget https://maven.xwiki.org/xwiki-keyring.gpg -P /usr/share/keyrings/
-      get_url:
+      ansible.builtin.get_url:
         url: https://downloads.sourceforge.net/project/cmdbuild/3.4/cmdbuild-3.4.1.war
         dest: /root/cmdbuild-3.4.1.war
         mode: '0644'
-        force: no
+        force: false
         timeout: 120
       when: not warfile_stat.stat.exists
 
     # Copy war file to webapps dir
     - name: Install war file in tomcat webapps dir
-      copy:
+      ansible.builtin.copy:
         src: /root/cmdbuild-3.4.1.war
         dest: /var/lib/tomcat9/webapps/cmdbuild.war
-        remote_src: yes
+        remote_src: true
         mode: '0644'
 
 
@@ -88,7 +86,7 @@
         name: cmdbuild
         comment: cmdbuild server account
         home: /home/cmdbuild
-        create_home: no
+        create_home: false
         group: cmdbuild
         groups: syslog
         shell: /bin/bash
@@ -99,28 +97,29 @@
     - name: Setup cmdbuild Postgresql database user
       become: true
       become_user: postgres
-      postgresql_user:
+      community.postgresql.postgresql_user:
         name: cmdbuild
         password: 'cmdbuild'
-        #priv: "CONNECT"
+        # priv: "CONNECT"
 
     # postgresql create database cmdbuild owner cmdbuild
     - name: Make sure cmdbuild Postgresql database exists.
       become: true
       become_user: postgres
-      postgresql_db:
+      community.postgresql.postgresql_db:
         name: cmdbuild
         template: 'template0'
         owner: cmdbuild
         state: present
       register: dbwork
 
-    - debug:
+    - name: Show dbwork variable
+      community.postgresql.postgresql_userdebug:
         msg: "{{ dbwork }}"
 
     # Copy db init file to /tmp so user postgres can read it
     - name: Copy database dump file to /tmp if the database was just created.
-      copy:
+      ansible.builtin.copy:
         src: files/cmdbuild.dump.gz
         dest: /tmp/cmdbuild.dump.gz
         mode: '0644'
@@ -132,27 +131,27 @@
     - name: Initialize cmdbuild datatase if it was just created.
       become: true
       become_user: postgres
-      shell:
+      ansible.builtin.command:
         cmd: /usr/bin/gunzip -c /tmp/cmdbuild.dump.gz | psql postgresql://cmdbuild:cmdbuild@localhost:5432/cmdbuild
       when: dbwork.changed
 
     # Set default jdk to /usr/lib/jvm/java-17-openjdk-amd64/ in /etc/default/tomcat9
     - name: Setup default jdk in /etc/default/tomcat9
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/default/tomcat9
         regexp: 'JAVA_HOME=.*'
         line: 'JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64/'
 
     # Setup cmdbuild config directory
     - name: Setup cmdbuild config directory
-      file:
+      ansible.builtin.file:
         path: /var/lib/tomcat9/conf/cmdbuild
         state: directory
         owner: tomcat
         group: tomcat
 
     - name: Configure database connection
-      blockinfile:
+      ansible.builtin.blockinfile:
         path: /var/lib/tomcat9/conf/cmdbuild/database.conf
         create: yes
         block: |
@@ -165,7 +164,7 @@
 
     # Set up nginx
     - name: Install nginx config file
-      copy:
+      ansible.builtin.copy:
         src: files/cmdb_nginx.conf
         dest: /etc/nginx/sites-available/default
 
@@ -176,7 +175,7 @@
         mode: '0755'
 
     - name: Copy SSL key and cert to nginx ssl dir
-      copy:
+      ansible.builtin.copy:
         src: "files/{{ item }}"
         dest: "/etc/nginx/ssl/{{ item }}"
         owner: root
@@ -188,7 +187,7 @@
 
     # Restart nginx
     - name: Restart nginx
-      systemd:
+      ansible.builtin.systemd:
         name: nginx
         state: restarted
         enabled: yes
@@ -207,58 +206,65 @@
 
     # Generate a key on the cmdb server
     - name: Generate key on cmdb server
-      shell:
+      ansible.builtin.command:
         cmd: /usr/bin/openssl req -x509 -sha256 -newkey rsa:1024 -keyout sp.key -out sp.crt -days 3650 -nodes -subj '/CN={{ domain }}'
         chdir: /tmp
 
     # Start getting auth token
     # Retrieve token url needed.  Returns JSON payload with var token-service.
     - name: Retrieve token url from server
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/realms/master"
         validate_certs: false
       register: tokenurl
 
-    - debug:
+    - name: Show token-service
+      ansible.builtin.debug:
         var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
     # Call info endpoint
     - name: "Retrieve endpoint info for our realm {{ realm }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
         validate_certs: false
       register: endpointinfo
 
-    - debug:
+    - name: Show endpoint info
+      ansible.builtin.debug:
         var: endpointinfo
 
     - name: Store authorization_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
 
     # "authorization_endpoint": "https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/openid-connect/auth",
-    - debug:
+    - name: Show authorization endpoint
+      ansible.builtin.debug:
         var: authorization_endpoint
 
     - name: Store token_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         token_endpoint: "{{ endpointinfo.json[\"token_endpoint\"] }}"
-    - debug:
+
+    - name: Show token endpoint
+      ansible.builtin.debug:
         var: token_endpoint
 
     - name: Store userinfo_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         userinfo_endpoint: "{{ endpointinfo.json[\"userinfo_endpoint\"] }}"
-    - debug:
+
+    - name: Show userinfo endpoint
+      ansible.builtin.debug:
         var: userinfo_endpoint
 
     # Get authentication token from token-service url
     - name: Retrieve authentication token from token-service url
-      uri:
+      ansible.builtin.uri:
         url: "{{ tokenurl.json[\"token-service\"] }}/token"
         method: POST
         body_format: form-urlencoded
@@ -271,30 +277,34 @@
           grant_type: password
       register: authtoken
 
-    - debug:
+    - name: Show auth token
+      ansible.builtin.debug:
         var: authtoken
 
-    - debug:
+    - name: Show access_token
+      ansible.builtin.debug:
         var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
-    - debug:
+    - name: Show auth_token
+      ansible.builtin.debug:
         var: auth_token
 
     # Retrieve IDP metadata descriptor and copy the 509 formatted certificate
     # https://ad.{{ domain }}/realms/ONESTEIN.LAN/protocol/saml/descriptor
     - name: Retrieve IDP metadata descriptor to use the 509 formatted certificate
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml/descriptor"
         method: get
         validate_certs: false
         return_content: yes
       register: idp_metadata
 
-    - debug:
+    - name: Show idp metadata
+      ansible.builtin.debug:
         var: idp_metadata
 
 # Please do not go down this road and stay sane...
@@ -307,25 +317,26 @@
 
     # We are going to save the XML metadate for shell processing
     - name: Save IDP XML metadata to file for processing
-      copy:
+      ansible.builtin.copy:
         content: "{{  idp_metadata.content }}"
         dest: /tmp/idp.xml
 
     # We are going to use a shell command to retrieve the value for X509Certificate
     - name: Run xmlstarlet to retrieve X509Certificate
-      shell:
+      ansible.builtin.command:
         cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
       register: xmlstarlet
 
-    - debug:
+    - name: Show xmlstarlet
+      ansible.builtin.debug:
         var: xmlstarlet
 
     - name: Store output in certificate variable
-      set_fact:
+      ansible.builtin.set_fact:
         idp_crt: "{{ xmlstarlet.stdout }}"
 
     - name: Remove first line from tmp files
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: "/tmp/{{ item }}"
         regexp: '^-----(BEGIN|END).*-----$'
         state: absent
@@ -334,26 +345,28 @@
         - sp.key
 
     - name: Retrieve remote ssl cert
-      shell:
+      ansible.builtin.command:
         cmd: cat  /tmp/sp.crt  |  tr -d '\n'
       register: sp_crt
 
-    - debug:
+    - name: Show sp crt
+      ansible.builtin.debug:
         var: sp_crt
 
     - name: Retrieve remote ssl key
-      shell:
+      ansible.builtin.command:
         cmd: cat  /tmp/sp.key  |  tr -d '\n'
       register: sp_key
 
-    - debug:
+    - name: Show sp key
+      ansible.builtin.debug:
         var: sp_key
 
     # Retrieve current list of clients of our type
     # So, this works in curl:
     # curl -k -v -H "Accept: application/json" -H "Authorization: Bearer ${access_token}" "https://ad.{{ domain }}:8443/admin/realms/master/clients" | jq .
     - name: Retrieve current list of clients and search for already existing "{{ cmdb_client_id }} "
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ cmdb_client_id }}"
         headers:
          Accept: "application/json"
@@ -363,21 +376,21 @@
       register: existingclient
 
     - name: Returned json
-      debug:
+      ansible.builtin.debug:
         var: existingclient
 
     - name: Copy existing client to backup file.
-      copy:
+      ansible.builtin.copy:
        content: "{{ existingclient }}"
        dest: /tmp/cmdb-existing-client-backup.json
 
     - name: Find ID in returned json
-      debug:
+      ansible.builtin.debug:
         var: existingclient.json[0].id
 
     - name: Delete client id  "{{ cmdb_client_id }}" if it already exists.
       # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
          Accept: "application/json"
@@ -388,24 +401,26 @@
       when: existingclient.json[0].id is defined
       register: deleteclient
 
-    - debug:
+    - name: Show deleteclient
+      ansible.builtin.debug:
         var: deleteclient
 
     - name: Convert Ninja template to variable
-      set_fact:
+      ansible.builtin.set_fact:
         jsonbody: "{{ lookup('template', 'cmdb-keycloak-sso.json.j2') }}"
 
-    - debug:
+    - name: Show json body
+      ansible.builtin.debug:
         var: jsonbody
 
     - name: For debugging store json var in local file
-      copy:
+      ansible.builtin.copy:
         content: "{{ jsonbody }}"
         dest: /tmp/jsonbody
 
    # Generate the json payload to upload
     - name: Upload JSON template file to create new Client ID on Keycloak server
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients"
         headers:
          Accept: "application/json"
@@ -420,7 +435,7 @@
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.{{ domain }}:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
-      debug:
+      ansible.builtin.debug:
         var: createclientresult.location
 
     # So far, so good
@@ -457,30 +472,32 @@
 
     # The next things only works after adding ReadWritePaths=/etc/tomcat9/cmdbuild/ to /lib/systemd/system/tomcat9.service
     - name: Add  ReadWritePaths=/etc/tomcat9/cmdbuild/ to /lib/systemd/system/tomcat9.service so we can edit the config.
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /lib/systemd/system/tomcat9.service
         insertafter: '^ReadWritePaths=/var/log/tomcat9/.*'
         line: 'ReadWritePaths=/etc/tomcat9/cmdbuild/'
     - name: Do a systemd daemon-reload now
-      systemd:
+      ansible.builtin.systemd:
         daemon_reload: true
     # Restart tomcat9
     - name: Restart tomcat9
-      systemd:
+      ansible.builtin.systemd:
         name: tomcat9
         state: restarted
         enabled: yes
 
-    - debug:
+    - name: Start waiting
+      ansible.builtin.debug:
         msg: "Start waiting for 443 to become available"
 
-    - wait_for:
+    - name: waiting
+      ansible.builtin.wait_for:
         port: 443
         delay: 20
 
     # Measured 12 attempts, so 25 max should work most of the time.
     - name: check if "{{ cmdb_server_url }}/cmdbuild/rest/v3/sessions" is open on the host (even a 403 means it is responding).
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/rest/v3/sessions"
         status_code: 403
         validate_certs: false
@@ -496,13 +513,14 @@
 #       "* There was an error starting the tomcat server"
 #     when: 'ok' not in "{{ amiup.content }}"
 
-    - debug:
+    - name: Done waiting
+      ansible.builtin.debug:
         msg: "Done waiting for 443"
 
     # Get authentication token from cmdb token-service url
     # After installation, the default login is admin/admin.
     - name: Retrieve authentication token from cmdb token-service url
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/sessions?scope=service&returnId=true"
         method: POST
         body_format: json
@@ -513,34 +531,36 @@
       register: cmdbreq1
 
     - name: Store authentication id into sessionid variable for easier retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         sessionid: "{{ cmdbreq1.json.data._id }}"
 
     - name: Retrieve configuration of system from cmdb rest url
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/configuration/system"
         method: GET
         validate_certs: false
         headers: { 'Cmdbuild-authorization': "{{ sessionid }}" }
       register: cmdbreq3
 
-    - debug:
+    - name: Show variable cmdbreq3
+      ansible.builtin.debug:
         var: cmdbreq3
 
     - name: Retrieve cmdb system config (compare to previous step!) from cmdb rest url
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config"
         method: GET
         validate_certs: false
         headers: { 'Cmdbuild-authorization': "{{ sessionid }}", 'includeDefault':  "True" }
       register: cmdbconf
 
-    - debug:
+    - name: Show cmdbconf
+      ansible.builtin.debug:
         var: cmdbconf
 
     # Werkt goed.
     - name: Retrieve value of org.cmdbuild.auth.module.saml.idp.id from cmdb rest url
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.id"
         method: GET
         validate_certs: false
@@ -549,7 +569,7 @@
 
     # Now we know this is stored in auth.conf as module.saml.idp.id
     - name: Set value of org.cmdbuild.auth.module.saml.idp.id to "{{ keycloak_server_url }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.id"
         method: PUT
         body_format: form-urlencoded
@@ -559,7 +579,7 @@
           "{{ keycloak_server_url }}"
 
     - name: Set value of org.cmdbuild.auth.module.saml.sp.id to "{{ cmdb_client_id }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.sp.id"
         method: PUT
         body_format: form-urlencoded
@@ -570,7 +590,7 @@
 
 
     - name: Set value of org.cmdbuild.auth.module.saml.idp.cert to "{{ idp_crt }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.cert"
         method: PUT
         body_format: form-urlencoded
@@ -580,7 +600,7 @@
           "{{ idp_crt }}"
 
     - name: Set value of org.cmdbuild.auth.module.saml.sp.key to "{{ sp_key.stdout }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.sp.key"
         method: PUT
         body_format: form-urlencoded
@@ -590,7 +610,7 @@
           "{{ sp_key.stdout }}"
 
     - name: Set value of org.cmdbuild.auth.module.saml.sp.cert to "{{ sp_crt.stdout }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.sp.cert"
         method: PUT
         body_format: form-urlencoded
@@ -600,7 +620,7 @@
           "{{ sp_crt.stdout }}"
 
     - name: Set value of org.cmdbuild.auth.module.saml.requireSignedAssertions to "False"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.requireSignedAssertions"
         method: PUT
         body_format: form-urlencoded
@@ -610,7 +630,7 @@
           "False"
 
     - name: Set value of org.cmdbuild.auth.module.saml.requireSignedMessages to "False"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.requireSignedMessages"
         method: PUT
         body_format: form-urlencoded
@@ -620,7 +640,7 @@
           "False"
 
     - name: Set value of org.cmdbuild.auth.module.saml.signatureAlgorithm to "RSA_SHA256"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.signatureAlgorithm"
         method: PUT
         body_format: form-urlencoded
@@ -630,7 +650,7 @@
           "RSA_SHA256"
 
     - name: Set value of org.cmdbuild.auth.module.saml.logout.enabled to "False"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.logout.enabled"
         method: PUT
         body_format: form-urlencoded
@@ -640,7 +660,7 @@
           "False"
 
     - name: Set value of org.cmdbuild.auth.module.saml.idp.logout to "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.logout"
         method: PUT
         body_format: form-urlencoded
@@ -651,7 +671,7 @@
 
     # Set sp.baseUrl
     - name: Set value of org.cmdbuild.auth.module.saml.sp.baseUrl to "{{ cmdb_base_url }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.sp.baseUrl"
         method: PUT
         body_format: form-urlencoded
@@ -661,7 +681,7 @@
           "{{ cmdb_base_url }}"
 
     - name: Set value of org.cmdbuild.auth.module.saml.idp.login to "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.login"
         method: PUT
         body_format: form-urlencoded
@@ -671,7 +691,7 @@
           "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"
 
     - name: Set value of org.cmdbuild.auth.module.saml.strict to "False"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.strict"
         method: PUT
         body_format: form-urlencoded
@@ -682,7 +702,7 @@
 
     # bash ./cmdbuild.sh restws -username admin -password admin setconfig org.cmdbuild.auth.module.saml.handlerScript "login = auth.getNameId()"
     - name: Set value of org.cmdbuild.auth.module.saml.handlerScript to "login = auth.getNameId()"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.handlerScript"
         method: PUT
         body_format: form-urlencoded
@@ -693,7 +713,7 @@
 
     # Try to enable saml module
     - name: Set value of org.cmdbuild.auth.module.saml.enabled to "True"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.enabled"
         method: PUT
         body_format: form-urlencoded
@@ -704,7 +724,7 @@
 
     # bash ./cmdbuild.sh restws -username admin -password admin setconfig org.cmdbuild.auth.case.insensitive true
     - name: Set value of org.cmdbuild.auth.case.insensitive to "True"
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.case.insensitive"
         method: PUT
         body_format: form-urlencoded
@@ -715,14 +735,15 @@
 
     # Werkt goed.
     - name: Signal CMDBuild to reload system configuration
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/reload"
         method: GET
         validate_certs: false
         headers: { 'Cmdbuild-authorization': "{{ sessionid }}" }
       register: cmdbreload
 
-    - debug:
+    - name: Show variable cmdbreload
+      ansible.builtin.debug:
         var: cmdbreload
 
     # decided to try adding saml to the login modules variable I saw there.
@@ -732,7 +753,7 @@
     #   bash cmdbuild.sh restws -username "{{ cmdb_admin_id }}" -password "{{ cmdb_admin_pw }}" setconfig org.cmdbuild.auth.modules saml,default
     # (this configuration means that both saml and the default login are enabled)
     - name: Add SSO to internal db login method
-      uri:
+      ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.modules"
         method: PUT
         body_format: form-urlencoded
@@ -744,10 +765,11 @@
     - name: Dump current authentication config
       become: true
       become_user: tomcat
-      shell:
+      ansible.builtin.command:
         cmd: bash ./cmdbuild.sh restws -username admin -password admin getconfigs | grep auth
         chdir: /var/lib/tomcat9/webapps/cmdbuild
       register: authconfig
 
-    - debug:
+    - name: Show variable authconfig
+      ansible.builtin.debug:
         var: authconfig

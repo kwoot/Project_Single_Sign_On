@@ -8,17 +8,18 @@
     keycloak_url: https://github.com/keycloak/keycloak/releases/download/
 
   tasks:
-    - debug:
+    - name: Show tip for sensible output
+      ansible.builtin.debug:
         msg: Readable debug output  export ANSIBLE_STDOUT_CALLBACK=debug
 
     - name: Read encrypted content
-      include_vars: encrypted-vars.yml
+      ansible.builtin.include_vars: encrypted-vars.yml
 
     - name: Read global variables
-      include_vars: global-vars.yml
+      ansible.builtin.include_vars: global-vars.yml
 
     - name: Make sure hostname is in /etc/hosts
-      lineinfile:
+      ansible.builtin.lineinfile:
         dest: "/etc/hosts"
         regexp: ".*\t{{ ansible_fqdn }}"
         line: "{{ ansible_facts['default_ipv4']['address'] }}\t{{ ansible_fqdn }}\t{{ ansible_fqdn }}"
@@ -27,7 +28,7 @@
     # Install all needed software in one go.
     # apt install -y ca-certificates curl openssh-server
     - name: Install all needed packages
-      apt:
+      ansible.builtin.apt:
         name: "{{ item }}"
       loop:
         - ca-certificates
@@ -44,16 +45,16 @@
         - nginx
 
     - name: Make sure no apache2 installed
-      apt:
+      ansible.builtin.apt:
         name: apache2
         state: absent
 
     - name: Set timezone to Europe/Amsterdam
-      timezone:
+      community.general.timezone:
         name: Europe/Amsterdam
 
-    - name: "Download {{ keycloak_url }}{{ keycloak_release }}/keycloak-{{ keycloak_release }}.zip"
-      get_url:
+    - name: "Download keycloak release zip file" # {{ keycloak_url }}{{ keycloak_release }}/keycloak-{{ keycloak_release }}.zip
+      ansible.builtin.get_url:
         url: " {{ keycloak_url }}{{ keycloak_release }}/keycloak-{{ keycloak_release }}.zip"
         dest: "/root/keycloak-{{ keycloak_release }}.zip"
 
@@ -74,17 +75,17 @@
         name: keycloak
         comment: Keycloak server account
         home: /opt/keycloak
-        create_home: no
+        create_home: false
         group: keycloak
         groups: syslog
         shell: /bin/bash
         system: true
 
     - name: Create logfile for Keycloak
-      copy:
+      ansible.builtin.copy:
         content: ""
         dest: /var/log/keycloak.log
-        force: no
+        force: false
         group: syslog
         owner: keycloak
         mode: 0664
@@ -96,7 +97,7 @@
         owner: keycloak
         group: keycloak
         state: link
-        force: yes
+        force: true
 
 
     - name: Unzip Keycloak distribution zip file
@@ -105,21 +106,21 @@
         dest: /opt/
         owner: keycloak
         group: keycloak
-        remote_src: yes
+        remote_src: true
 
     # Setup Postgresql database
     - name: Setup Keycloak Postgresql database user
       become: true
       become_user: postgres
-      postgresql_user:
+      community.postgresql.postgresql_user:
         name: keycloak
         password: 'K3yCl0@k'
-        #priv: "CONNECT"
+        # priv: "CONNECT"
 
     - name: Setup Keycloak Postgresql database
       become: true
       become_user: postgres
-      postgresql_db:
+      community.postgresql.postgresql_db:
         name: keycloak
         template: 'template0'
         owner: keycloak
@@ -128,18 +129,19 @@
     # Install Systemd service definition
     # TODO: file currently contains hard-coded password. Needs vault someday.
     - name: Upload Systemd service definition
-      template:
+      ansible.builtin.template:
         src: keycloak.service
         dest: /etc/systemd/system/keycloak.service
         owner: root
         group: root
+        mode: '0644'
 
     - name: Force systemd to reread configs
       ansible.builtin.systemd:
-        daemon_reload: yes
+        daemon_reload: true
 
     - name: Test if keystore already exists
-      stat:
+      ansible.builtin.stat:
         path: /opt/keycloak/conf/server.keystore
       register: keystore
 
@@ -150,49 +152,64 @@
 
     # You will thank me later: https://coderwall.com/p/3t4xka/import-private-key-and-certificate-into-java-keystore
     - name: Export complete ssl chain into one file
-      shell:
-        cmd: "/usr/bin/openssl pkcs12 -export -in /root/_wildcard.{{ domain }}.pem  -inkey /root/_wildcard.{{ domain }}-key.pem  -chain -CAfile /root/rootCA.pem -name \"{{ domain }}\" -passout pass:secret -out /tmp/{{ domain }}.p12"
+      ansible.builtin.command:
+        cmd: "/usr/bin/openssl pkcs12 -export -in /root/_wildcard.{{ domain }}.pem  \
+              -inkey /root/_wildcard.{{ domain }}-key.pem  -chain -CAfile /root/rootCA.pem -name \"{{ domain }}\" \
+              -passout pass:secret -out /tmp/{{ domain }}.p12"
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Make sure tmp file can be read by user keycloak
-      file:
+      ansible.builtin.file:
         path: "/tmp/{{ domain }}.p12"
         owner: 'keycloak'
 
-    - name: "Import wildcard key for {{ domain }}  into keycloak keystore file"
+    - name: "Import wildcard key into keycloak keystore file for domain {{ domain }}"
       become: true
       become_user: keycloak
-      shell:
-        cmd: "/usr/bin/keytool -importkeystore -srcstorepass secret -deststorepass secret  -destkeystore server.keystore -srckeystore /tmp/{{ domain }}.p12 -srcstoretype PKCS12"
+      ansible.builtin.command:
+        cmd: "/usr/bin/keytool -importkeystore -srcstorepass secret -deststorepass secret \
+              -destkeystore server.keystore -srckeystore /tmp/{{ domain }}.p12 -srcstoretype PKCS12"
         chdir: /opt/keycloak/conf
-      when: keystore.stat.exists == false
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
+      when: not keystore.stat.exists
 
     - name: Initial setup Keycloak run to configure connection to PostgreSQL database
       become: true
       become_user: keycloak
-      shell:
+      ansible.builtin.command:
         cmd: ./kc.sh build --db postgres
         chdir: /opt/keycloak/bin
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     # Normal initial startup only happens on localhost to be able to set admin userid and password
     # Other option is to use commandline settings for initial startup to set these credentials
     # We have to make a timeout on this
-    - name: Initial keycloak startup to set initial admin userid and password. This can take a long time because we are polling. Also, when not the first time it generates an error we will ignore.
+    - name: Initial keycloak startup to set initial admin userid and password. This can take a long time!"
+      # ...because we are polling. Also, when not the first time it generates an error we will ignore.
       become: true
       become_user: keycloak
-      shell:
-        cmd: "KEYCLOAK_ADMIN={{ kc_adminid }} KEYCLOAK_ADMIN_PASSWORD={{ kc_adminpw }} ./kc.sh start --hostname \"{{ ansible_fqdn }}\"  --db-password 'K3yCl0@k' --db-username keycloak --db-url-database keycloak --https-key-store-password=secret"
+      ansible.builtin.command:
+        cmd: "./kc.sh start --hostname \"{{ ansible_fqdn }}\" \
+              --db-password 'K3yCl0@k' --db-username keycloak --db-url-database keycloak --https-key-store-password=secret"
         chdir: /opt/keycloak/bin
+      environment:
+        KEYCLOAK_ADMIN: "{{ kc_adminid }}"
+        KEYCLOAK_ADMIN_PASSWORD: "{{ kc_adminpw }}"
       async: 180
       poll: 10
       register: result
+      changed_when: result.rc != 0 # <- Uses the return code to define when the task has changed.
       # IF this is not the first time we do this, the next string will appear in the output.
       until: result.stdout is search(".*user with username exists.*")
       # Since this will always timeout we will ignore the errors.
-      ignore_errors: yes
+      ignore_errors: "{{ ansible_check_mode }}" # <- Ignores errors in check mode.
 
     # Enable and start systemd keycloak service
     - name: Configure Keycloak systemd
-      ansible.builtin.systemd:
+      ansible.builtin.systemd_Service:
         name: keycloak
         enabled: yes
         state: restarted
@@ -204,7 +221,7 @@
         mode: '0755'
 
     - name: Copy SSL key and cert to nginx ssl dir
-      copy:
+      ansible.builtin.copy:
         src: "files/{{ item }}"
         dest: "/etc/nginx/ssl/{{ item }}"
         owner: root
@@ -215,7 +232,7 @@
         - _wildcard.{{ domain }}-key.pem
 
     - name: Install nginx reverse proxy virtualhost for Keycloak
-      template:
+      ansible.builtin.template:
         src: "keycloak_nginx.conf.j2"
         dest: "/etc/nginx/sites-available/keycloak"
         owner: root

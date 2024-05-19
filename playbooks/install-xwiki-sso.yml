@@ -11,18 +11,19 @@
 
 
   tasks:
-    - debug:
+    - name: Show sensible tip
+      ansible.builtin.debug:
         msg: Readable debug output  export ANSIBLE_STDOUT_CALLBACK=debug
 
     - name: Read encrypted content
-      include_vars: encrypted-vars.yml
+      ansible.builtin.include_vars: encrypted-vars.yml
 
     - name: Read global variables
-      include_vars: global-vars.yml
+      ansible.builtin.include_vars: global-vars.yml
 
     - name: Download Xwiki  repo key
       # sudo wget https://maven.xwiki.org/xwiki-keyring.gpg -P /usr/share/keyrings/
-      get_url:
+      ansible.builtin.get_url:
         url: https://maven.xwiki.org/xwiki-keyring.gpg
         dest: /usr/share/keyrings/xwiki-keyring.gpg
         mode: '0644'
@@ -33,21 +34,21 @@
       # https://maven.xwiki.org/releases/xwiki-releases.list: all released versions including milestones and release candidates (beta)
       # https://maven.xwiki.org/stable/xwiki-stable.list: all released versions excluding milestones and release candidates (stable)
       # https://maven.xwiki.org/lts/xwiki-lts.list: the current "long term support" branch versions as defined in Support page
-      get_url:
+      ansible.builtin.get_url:
         url: https://maven.xwiki.org/lts/xwiki-lts.list
         dest: /etc/apt/sources.list.d/xwiki-lts.list
         mode: '0644'
 
     - name: Update repositories cache
-      apt:
-        update_cache: yes
+      ansible.builtin.apt:
+        update_cache: true
 
     - name: Set timezone to Europe/Amsterdam
-      timezone:
+      community.general.timezone:
         name: "{{ timezone }}"
 
     - name: Install Xwiki and Libreoffice
-      apt:
+      ansible.builtin.apt:
         name: "{{ item }}"
         state: present
       loop:
@@ -60,28 +61,28 @@
         - apache2
 
     - name: Make sure no nginx installed
-      apt:
+      ansible.builtin.apt:
         name: nginx
         state: absent
 
     # Configure Apache with SSL
     - name: Enable Apache module proxy
-      apache2_module:
+      community.general.apache2_module:
         state: present
         name: proxy
 
     - name: Enable Apache module proxy_http
-      apache2_module:
+      community.general.apache2_module:
         state: present
         name: proxy_http
 
     - name: Enable Apache module ssl
-      apache2_module:
+      community.general.apache2_module:
         state: present
         name: ssl
 
     - name: Enable Apache module rewrite
-      apache2_module:
+      community.general.apache2_module:
         state: present
         name: rewrite
 
@@ -92,7 +93,7 @@
         mode: '0755'
 
     - name: Copy SSL key and cert to apache ssl dir
-      copy:
+      ansible.builtin.copy:
         src: "files/{{ item }}"
         dest: "/etc/apache2/ssl/{{ item }}"
         owner: root
@@ -103,7 +104,7 @@
         - _wildcard.{{ domain }}-key.pem
 
     - name: Install Apache reverse proxy virtualhost for Keycloak
-      template:
+      ansible.builtin.template:
         src: "xwiki_apache.conf"
         dest: "/etc/apache2/sites-available/xwiki.conf"
         owner: root
@@ -111,42 +112,50 @@
         mode: '0600'
 
     - name: Enable virtualhost
-      shell:
+      ansible.builtin.command:
         cmd: a2ensite xwiki
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Restart Apache webserver
-      ansible.builtin.systemd:
+      ansible.builtin.systemd_service:
         name: apache2
-        enabled: yes
+        enabled: true
         state: restarted
 
 
-    - name: remove existing filestore if exists
-      file:
+    - name: Remove existing filestore if exists
+      ansible.builtin.file:
         path: /etc/tomcat9/keystore.pkcs12
         state: absent
 
     # You will thank me later: https://coderwall.com/p/3t4xka/import-private-key-and-certificate-into-java-keystore
     # USE PASSWORD!: changeit
     - name: Export complete ssl chain into one file
-      shell:
-        cmd: /usr/bin/openssl pkcs12 -export -in /root/_wildcard.{{ domain }}.pem  -inkey /root/_wildcard.{{ domain }}-key.pem  -chain -CAfile /root/rootCA.pem -name "{{ domain }}" -passout pass:changeit -out "/root/{{ domain }}.p12"
+      ansible.builtin.command:
+        cmd: "/usr/bin/openssl pkcs12 -export -in /root/_wildcard.{{ domain }}.pem  -inkey /root/_wildcard.{{ domain }}-key.pem \
+              -chain -CAfile /root/rootCA.pem -name '{{ domain }}' -passout pass:changeit -out '/root/{{ domain }}.p12'"
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
-    - name: "Import wildcard key for i{{ domain }} into keycloak keystore file"
-      shell:
-        cmd: /usr/bin/keytool -importkeystore -srcstorepass changeit -deststorepass changeit  -destkeystore /etc/tomcat9/keystore.pkcs12 -srckeystore "/root/{{ domain }}.p12" -srcstoretype PKCS12
+    - name: "Import wildcard key into keycloak keystore file for i{{ domain }}"
+      ansible.builtin.command:
+        cmd: "/usr/bin/keytool -importkeystore -srcstorepass changeit -deststorepass changeit  \
+              -destkeystore /etc/tomcat9/keystore.pkcs12 -srckeystore '/root/{{ domain }}.p12' -srcstoretype PKCS12"
         chdir: /etc/tomcat9/
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     # Enable Tomcat9 ssl connector on 8443
     # Do not try to do this the hard way with some Ansible XML magix. It doesn't work.
     # Simply copy from local files
     - name: Overwrite /etc/tomcat9/server.xml with enabled https connector definition from local file
-      copy:
+      ansible.builtin.copy:
         src: files/xwiki_tomcat9_server.xml
         dest: /etc/tomcat9/server.xml
         owner: root
         group: tomcat
-        force: yes
+        force: true
         mode: '0640'
 
     # Memory
@@ -163,7 +172,7 @@
     #     edit /etc/default/tomcat9 file and add
     # JAVA_OPTS="${JAVA_OPTS} -Djava.security.egd=file:/dev/./urandom"
     - name: Tune Java settings in /etc/default/tomcat9
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/default/tomcat9
         regexp: "JAVA_OPTS=.*"
         line: 'JAVA_OPTS="$JAVA_OPTS -Djava.awt.headless=true -Djava.security.egd=file:/dev/./urandom -Xmx2048m" '
@@ -175,65 +184,65 @@
     # openoffice.autoStart=true
     # openoffice.homePath=/usr/lib/libreoffice/
     # ====== Contents config file =======
-    # #-# Type of the openoffice server instance used by officeimporter component.
+    # # Type of the openoffice server instance used by officeimporter component.
     # openoffice.serverType = 0
-    #-# Port numbers used for connecting to the openoffice server instance.
+    # Port numbers used for connecting to the openoffice server instance.
     # openoffice.serverPorts = 8100,8101
-    #-# If the openoffice server should be started / connected upon XE start.
+    # If the openoffice server should be started / connected upon XE start.
     # openoffice.autoStart = false
-    #-# Path to openoffice installation (serverType:0 only).
+    # Path to openoffice installation (serverType:0 only).
     # openoffice.homePath = /opt/openoffice.org3/
-    #-# Path to openoffice execution profile (serverType:0 only).
+    # Path to openoffice execution profile (serverType:0 only).
     # openoffice.profilePath = /home/user/.openoffice.org/3
-    #-# Maximum number of simultaneous conversion tasks to be handled by a single openoffice process (serverType:0 only).
+    # Maximum number of simultaneous conversion tasks to be handled by a single openoffice process (serverType:0 only).
     # openoffice.maxTasksPerProcess = 50
     # openoffice.taskExecutionTimeout = 60000
     # ======================================
 
     - name: Autostart Libreoffice integration into Xwiki
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: ".*openoffice.autoStart.*"
         line: 'openoffice.autoStart=true'
 
     - name: Config Libreoffice path for Xwiki
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: ".*openoffice.homePath.*"
         line: 'openoffice.homePath=/usr/lib/libreoffice/'
 
-    # #-# Define a list of trusted domains that can be used in the wiki for performing requests or redirections even if
-    #-# the wiki does not use it. Domains are listed without http and separated with a comma in the list. Subdomains can be
-    #-# specified.
-    #-# Example of accepted value: foo.acme.org,enterprise.org
-    #-#
-    #-# By default the list of trusted domains is empty:
+    # Define a list of trusted domains that can be used in the wiki for performing requests or redirections even if
+    # the wiki does not use it. Domains are listed without http and separated with a comma in the list. Subdomains can be
+    # specified.
+    # Example of accepted value: foo.acme.org,enterprise.org
+    #
+    # By default the list of trusted domains is empty:
     # url.trustedDomains=
-    - name: "Add url.trustedDomains={{ domain }} to /etc/xwiki/xwiki.properties"
-      lineinfile:
+    - name: "Add to /etc/xwiki/xwiki.properties url.trustedDomains={{ domain }} "
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: ".*url.trustedDomains=.*"
         line: "url.trustedDomains={{ domain }}"
 
 
-    #-# Allow to enable or disable checks performed on domains by taking into account the list of trusted domains.
-    #-# Disable this property only if you experienced some issues on your wiki: some security check won't be performed when
-    #-# this property is set to false.
-    #-#
-    #-# By default this property is set to true:
+    # Allow to enable or disable checks performed on domains by taking into account the list of trusted domains.
+    # Disable this property only if you experienced some issues on your wiki: some security check won't be performed when
+    # this property is set to false.
+    #
+    # By default this property is set to true:
     # url.trustedDomainsEnabled=true
 
     # Find xwiki.authentication.authclass in xwiki.cfg and comment it out with #-# in the beginning.
     # Add below: xwiki.authentication.authclass=org.xwiki.contrib.oidc.auth.OIDCAuthServiceImpl
     - name: Enable Keycloak SSO oidc auth services in Xwiki
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.cfg
         regexp: ".*xwiki.authentication.authclass=.*"
         line: "xwiki.authentication.authclass=org.xwiki.contrib.oidc.auth.OIDCAuthServiceImpl"
 
     # xwiki.home=https://MYWIKIDOMAIN/
     - name: Set xwiki.home in xwiki.cfg
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.cfg
         regexp: ".*xwiki.home=.*"
         line: "xwiki.home={{ xwiki_server_url }}"
@@ -242,7 +251,7 @@
     # Open xwiki.properties and adapt the following to your settings, and add this at the end of the file (Note the __XXX__ parts):
     # oidc.xwikiprovider=https://__YOUR-WIKI-ADDRESS__/xwiki/oidc
     - name: Configure oidc.xwikiprovider
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.xwikiprovider=.*"
         line: "oidc.xwikiprovider={{ xwiki_server_url }}/xwiki/oidc"
@@ -250,7 +259,7 @@
 
     # oidc.skipped=false
     - name: Configure
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.skipped=.*"
         line: "oidc.skipped=false"
@@ -267,16 +276,17 @@
     #  "account-service": "https://ad.onestein.lan:8443/realms/master/account",
     #   "tokens-not-before": 0
     - name: Retrieve token url from server
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/realms/master"
         validate_certs: false
       register: tokenurl
 
-    - debug:
+    - name: Show token-service
+      ansible.builtin.debug:
         var: tokenurl.json["token-service"]
 
     - name: Store url for easier retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         token_url: "{{ tokenurl.json[\"token-service\"] }}"
 
     # Call info endpoint
@@ -294,88 +304,94 @@
     #  "check_session_iframe": "https://ad.onestein.lan:8443/realms/ONESTEIN.LAN/protocol/openid-connect/login-status-iframe.html"
     #  ... and a lot more...
     - name: "Retrieve endpoint info for our realm {{ realm }}"
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/.well-known/openid-configuration"
         validate_certs: false
       register: endpointinfo
 
-    - debug:
+    - name: Show endpoint info
+      ansible.builtin.debug:
         var: endpointinfo
 
     - name: Store authorization_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         authorization_endpoint: "{{ endpointinfo.json[\"authorization_endpoint\"] }}"
-    - debug:
+
+    - name: Show authorization endpoint
+      ansible.builtin.debug:
         var: authorization_endpoint
 
     - name: Store token_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         token_endpoint: "{{ endpointinfo.json[\"token_endpoint\"] }}"
-    - debug:
+
+    - name: Show token endpoint
+      ansible.builtin.debug:
         var: token_endpoint
 
     - name: Store userinfo_endpoint for faster retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         userinfo_endpoint: "{{ endpointinfo.json[\"userinfo_endpoint\"] }}"
-    - debug:
+
+    - name: Show userinfo endpoint
+      ansible.builtin.debug:
         var: userinfo_endpoint
 
     # Relocated this code to here so we can generate better strings based on result of prior REST call
     # oidc.endpoint.authorization=https://__KEYCLOAK-ADDRESS__/auth/realms/__REALM__/protocol/openid-connect/auth
     - name: Configure oidc.endpoint.authorization
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.authorization=.*"
         line: "oidc.endpoint.authorization={{ authorization_endpoint }}"
-        #line: "oidc.endpoint.authorization={{ keycloak_server_url }}/realms/{{ realm }}/protocol/openid-connect/auth"
+        # line: "oidc.endpoint.authorization={{ keycloak_server_url }}/realms/{{ realm }}/protocol/openid-connect/auth"
 
     # oidc.endpoint.token=https://__KEYCLOAK-ADDRESS__/auth/realms/__REALM__/protocol/openid-connect/token
     - name: Configure oidc.endpoint.token
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.token=.*"
         line: "oidc.endpoint.token={{ token_endpoint }}"
-        #line: "oidc.endpoint.token={{ keycloak_server_url }}/realms/{{ realm }}/protocol/openid-connect/token"
+        # line: "oidc.endpoint.token={{ keycloak_server_url }}/realms/{{ realm }}/protocol/openid-connect/token"
 
     # oidc.endpoint.userinfo=https://__KEYCLOAK-ADDRESS__/auth/realms/__REALM__/protocol/openid-connect/userinfo
     - name: Configure oidc.endpoint.userinfo
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.userinfo=.*"
         line: "oidc.endpoint.userinfo={{ userinfo_endpoint }}"
-        #line: "oidc.endpoint.userinfo={{ keycloak_server_url }}/realms/{{ realm }}/protocol/openid-connect/userinfo"
+        # line: "oidc.endpoint.userinfo={{ keycloak_server_url }}/realms/{{ realm }}/protocol/openid-connect/userinfo"
 
     # oidc.scope=openid,profile,email,address
     - name: Configure oidc.scope
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.scope=.*"
         line: "oidc.scope=openid,profile,email,address"
 
     - name: Configure
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.defaultClientConfiguration=.*"
         line: "oidc.defaultClientConfiguration=default"
 
-
     # oidc.endpoint.userinfo.method=GET
     - name: Configure oidc.endpoint.userinfo.method
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.userinfo.method=.*"
         line: "oidc.endpoint.userinfo.method=GET"
 
     # oidc.user.nameFormater=${oidc.user.preferredUsername._clean._lowerCase}
     - name: Configure oidc.user.nameFormater
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.user.nameFormater=.*"
         line: "oidc.user.nameFormater=${oidc.user.preferredUsername._clean._lowerCase}"
 
     # oidc.user.subjectFormater=${oidc.user.subject}
     - name: Configure oidc.user.subjectFormater
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.user.subjectFormater=.*"
         line: "oidc.user.subjectFormater=${oidc.user.subject}"
@@ -389,21 +405,21 @@
 
     # oidc.userinfoclaims=xwiki_user_accessibility,xwiki_user_company,xwiki_user_displayHiddenDocuments,xwiki_user_editor,xwiki_user_usertype
     - name: Configure oidc.userinfoclaims
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.userinfoclaims=.*"
         line: "oidc.userinfoclaims=xwiki_user_accessibility,xwiki_user_company,xwiki_user_displayHiddenDocuments,xwiki_user_editor,xwiki_user_usertype"
 
     # # oidc.userinforefreshrate=600000
     - name: Configure oidc.userinforefreshrate
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.userinforefreshrate=.*"
         line: "oidc.userinforefreshrate=600000"
 
     # oidc.clientid=__KEYCLOAK-CLIENT-ID__
     - name: Configure oidc.clientid
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.clientid=.*"
         line: "oidc.clientid={{ xwiki_client_id }}"
@@ -411,7 +427,7 @@
     # oidc.endpoint.token.auth_method=client_secret_basic
     # Changed this to client_secret_post and retry
     - name: Configure oidc.endpoint.token.auth_method=client_secret_post
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.endpoint.token.auth_method=.*"
         line: "oidc.endpoint.token.auth_method=client_secret_post"
@@ -419,7 +435,7 @@
 
     # Get authentication token from token-service url
     - name: Retrieve authentication token from token-service url
-      uri:
+      ansible.builtin.uri:
         url: "{{ tokenurl.json[\"token-service\"] }}/token"
         method: POST
         body_format: form-urlencoded
@@ -432,17 +448,20 @@
           grant_type: password
       register: authtoken
 
-    - debug:
+    - name: Show authtoken
+      ansible.builtin.debug:
         var: authtoken
 
-    - debug:
+    - name: Show access-token
+      ansible.builtin.debug:
         var: authtoken.json["access_token"]
 
     - name: Store access token into variable for easier retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         auth_token: "{{ authtoken.json[\"access_token\"] }}"
 
-    - debug:
+    - name: Show auth_token
+      ansible.builtin.debug:
         var: auth_token
 
     #######################################################################################
@@ -453,49 +472,47 @@
     # So, this works in curl:
     # curl -k -v -H "Accept: application/json" -H "Authorization: Bearer ${access_token}" "https://ad.onestein.lan:8443/admin/realms/master/clients" | jq .
     - name: Retrieve current list of clients and search for already existing "{{ xwiki_client_id }} "
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ xwiki_client_id }}"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
 
     - name: Find ID in returned json
-      debug:
+      ansible.builtin.debug:
         var: existingclient.json[0].id
 
-    - name: Delete client id  "{{ xwiki_client_id }}" if it already exists.
+    - name: If it already exists then delete client id  "{{ xwiki_client_id }}" .
       # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
       when: existingclient.json[0].id is defined
       register: deleteclient
 
-    - debug:
+    - name: Show deleteclient var
+      ansible.builtin.debug:
         var: deleteclient
 
     - name: Convert Ninja template to variable
-      set_fact:
+      ansible.builtin.set_fact:
         jsonbody: "{{ lookup('template', 'xwiki-keycloak-sso.json.j2') }}"
-
-#   - debug:
-#       var: jsonbody
 
     # Generate the json payload to upload
     - name: Upload JSON template file to create new Client ID on Keycloak server
-      uri:
+      ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" #.json[\"access_token\"]  }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}" # .json[\"access_token\"]  }}"
         method: POST
         validate_certs: false
         body_format: json
@@ -506,7 +523,7 @@
     # Good news! Result contains location of new client id in location
     # Example: "location": "https://ad.onestein.lan:8443/admin/realms/ONESTEIN.LAN/clients/e01a87cf-537c-441e-b6ee-17f4cd07d92c"
     - name: If all went well we now have a locaton of the newly created Client ID
-      debug:
+      ansible.builtin.debug:
         var: createclientresult.location
 
 #   # You can also search the client id using this piece of code
@@ -525,24 +542,24 @@
     # Generate and retrieve a new Client-Secret to put into  xwiki.properties under oidc.secret=__KEYCLOAK-CLIENT-SECRET__
     # GET /{realm}/clients/{id}/client-secret
     - name: Retrieve secret for newly created client "{{ xwiki_client_id }} "
-      uri:
+      ansible.builtin.uri:
         url: "{{ createclientresult.location }}/client-secret"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: clientsecret
 
     - name: Store secret for easy retrieval
-      set_fact:
+      ansible.builtin.set_fact:
         client_secret: "{{ clientsecret.json.value }} "
 
     # Aim is: In the end, Client-ID and Client-Secret have to match on Keycloak and in xwiki.properties.
     # oidc.secret=__KEYCLOAK-CLIENT-SECRET__
 
     - name: Configure oidc.secret
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/xwiki/xwiki.properties
         regexp: "oidc.secret=.*"
         line: "oidc.secret={{ client_secret }}"
@@ -551,14 +568,13 @@
     # Aim is: In the end, Client-ID and Client-Secret have to match on Keycloak and in xwiki.properties.
     #
     - name: Enable and start tomcat9
-      service:
+      ansible.builtin.service:
         name: tomcat9
         state: restarted
-        enabled: yes
-
+        enabled: true
 
     - name: Post-install message IT IS IMPORTANT TO READ THIS
-      debug:
+      ansible.builtin.debug:
         msg: |
           ********************************************************************************************************
           * After a fresh Xwiki installation you need to manually install (within Xwiki!) the following extension:
@@ -573,5 +589,3 @@
           * Now click on Continue to do the actual install
           * After that ssh to the server and do a systemctl restart tomcat9
           ********************************************************************************************************
-
-
