@@ -1,5 +1,9 @@
+stages:
+  - ansible-lint
+
 ansible-lint:
-  stage: linting
+  stage: ansible-lint
   image: registry.gitlab.com/pipeline-components/ansible-lint:latest
   script:
+    - ansible-lint --version
     - ansible-lint --show-relpath playbooks/
