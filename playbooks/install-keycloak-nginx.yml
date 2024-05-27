@@ -57,6 +57,7 @@
       ansible.builtin.get_url:
         url: " {{ keycloak_url }}{{ keycloak_release }}/keycloak-{{ keycloak_release }}.zip"
         dest: "/root/keycloak-{{ keycloak_release }}.zip"
+        mode: '0644'
 
     - name: Create /opt if it does not exist
       ansible.builtin.file:
@@ -88,7 +89,7 @@
         force: false
         group: syslog
         owner: keycloak
-        mode: 0664
+        mode: '0664'
 
     - name: Create symbolic link from /opt/keycloak to /opt/
       ansible.builtin.file:
@@ -211,7 +212,7 @@
     - name: Configure Keycloak systemd
       ansible.builtin.systemd_service:
         name: keycloak
-        enabled: yes
+        enabled: true
         state: restarted
 
     - name: Make SSL dir for nginx
@@ -243,27 +244,23 @@
     - name: Enable virtualhost in nginx
       ansible.builtin.file:
         src: /etc/nginx/sites-available/keycloak
-        dest:  /etc/nginx/sites-enabled/keycloak
+        dest: /etc/nginx/sites-enabled/keycloak
         owner: root
         group: root
         state: link
-        force: yes
+        force: true
 
     # Disable default configuration by removing symlink /etc/nginx/sites-enabled/default
     - name: Disable default nginx site config by removing a symlink
       ansible.builtin.file:
-        path:  /etc/nginx/sites-enabled/default
+        path: /etc/nginx/sites-enabled/default
         state: absent
 
     - name: Restart nginx webserver
       ansible.builtin.systemd:
         name: nginx
-        enabled: yes
+        enabled: true
         state: restarted
 
     # We know installation works up to this point.
     # Testing: curl -k "https://ad.onestein.lan/realms/ONESTEIN.LAN/.well-known/openid-configuration" | jq . | grep _endpoint
-
-
-
-

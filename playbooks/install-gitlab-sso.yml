@@ -21,15 +21,17 @@
         msg: Readable debug output  export ANSIBLE_STDOUT_CALLBACK=debug
 
     - name: Read global vars
-      include_vars: global-vars.yml
+      ansible.builtin.include_vars: global-vars.yml
 
     - name: Read encrypted content
-      include_vars: encrypted-vars.yml
+      ansible.builtin.include_vars: encrypted-vars.yml
 
     - name: Shutdown GitLab if already exists and ignore any errors
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: gitlab-ctl stop
-      ignore_errors: yes
+      ignore_errors: "{{ ansible_check_mode }}" # <- Ignores errors in check mode.
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Set timezone to Europe/Amsterdam
       community.general.timezone:
@@ -41,7 +43,7 @@
       ansible.builtin.apt:
         name: "{{ item }}"
         state: present
-        update_cache: yes
+        update_cache: true
       loop:
         - ca-certificates
         - curl
@@ -72,12 +74,18 @@
         - rootCA-key.pem
 
     - name: Try to install my root CA on this system
-      ansible.builtin.shell:
-        cmd: CAROOT=/root /root/mkcert -install
+      ansible.builtin.command:
+        cmd: /root/mkcert -install
+      environment:
+        CAROOT: /root
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Update all CA certificates
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: /usr/sbin/update-ca-certificates
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     # Check if our CA is already installed
     # Should be /usr/local/share/ca-certificates/mkcert_development_CA_62268663181785622328732999788222374785.crt
@@ -98,9 +106,11 @@
         dest: /tmp/script.deb.sh
         mode: '0700'
 
-    - name: execute repo add script
-      ansible.builtin.shell:
+    - name: Execute repo add script
+      ansible.builtin.command:
         cmd: /tmp/script.deb.sh
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     ########################################################
     # After this step we should have a GitLab installation #
@@ -134,7 +144,7 @@
     #        /opt/gitlab/embedded/bin/openssl s_client -connect localhost:443 </dev/null
     #        The output should contain detailed information, such as the certificate chain, ordering, and a line such as Verify return code: 0 (ok)
     #
-    #Your server certificates should be placed at:
+    # Your server certificates should be placed at:
     #
     #    /etc/gitlab/ssl/hostname.crt
     #    /etc/gitlab/ssl/hostname.key
@@ -233,7 +243,9 @@
     - name: Store token_endpoint for faster retrieval
       ansible.builtin.set_fact:
         token_endpoint: "{{ endpointinfo.json[\"token_endpoint\"] }}"
-    - debug:
+
+    - name: Show token endpoint
+      ansible.builtin.debug:
         var: token_endpoint
 
     - name: Store userinfo_endpoint for faster retrieval
@@ -262,7 +274,7 @@
       ansible.builtin.debug:
         var: authtoken
 
-    - name: show access_token
+    - name: Show access_token
       ansible.builtin.debug:
         var: authtoken.json["access_token"]
 
@@ -285,8 +297,8 @@
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ gitlab_client_id }}"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -295,13 +307,13 @@
       ansible.builtin.debug:
         var: existingclient.json[0].id
 
-    - name: Delete client id  "{{ gitlab_client_id }}" if it already exists.
+    - name: If it already exists delete client id  "{{ gitlab_client_id }}" .
       # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
@@ -321,8 +333,8 @@
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" #.json[\"access_token\"]  }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}" # .json[\"access_token\"]  }}"
         method: POST
         validate_certs: false
         body_format: json
@@ -342,8 +354,8 @@
       ansible.builtin.uri:
         url: "{{ createclientresult.location }}/client-secret"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: clientsecret
@@ -368,7 +380,7 @@
         path: /etc/gitlab/gitlab.rb
         regexp: ".*gitlab_rails['omniauth_allow_single_sign_on'].*"
         line: "gitlab_rails['omniauth_allow_single_sign_on'] = true"
-        #line: "gitlab_rails['omniauth_allow_single_sign_on'] = ['openid_connect']"
+        # line: "gitlab_rails['omniauth_allow_single_sign_on'] = ['openid_connect']"
 
     # gitlab_rails['omniauth_block_auto_created_users'] = false
     - name: Configure omniauth_block_auto_created_users
@@ -376,7 +388,7 @@
         path: /etc/gitlab/gitlab.rb
         regexp: ".*gitlab_rails['omniauth_block_auto_created_users'].*"
         line: "gitlab_rails['omniauth_block_auto_created_users'] = true"
-        #line: "gitlab_rails['omniauth_block_auto_created_users'] = false"
+        # line: "gitlab_rails['omniauth_block_auto_created_users'] = false"
 
     # Trust me on this. Getting this to work is a PITA!
     # Ensure discovery is set to true. Setting it to false requires specifying all the URLs and keys required to make OpenID work
@@ -413,8 +425,11 @@
       changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Start GitLab
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: gitlab-ctl start
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
+
 
     - name: Show that we start to wait
       ansible.builtin.debug:
@@ -435,9 +450,11 @@
         msg: "Done waiting for 443"
 
     - name: Check openssl config
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: /opt/gitlab/embedded/bin/openssl s_client -connect localhost:443 </dev/null
       register: opensslconf
+      changed_when: opensslconf.rc != 0 # <- Uses the return code to define when the task has changed.
+
 
     - name: Show opensslconf
       ansible.builtin.debug:
@@ -458,5 +475,3 @@
           * or gitaly['logging_level'] = 'warn'
           * When users get the message "Sign-in failed because email has already been taken" the user needs to link
           * his account to the SSO server. Please see https://docs.gitlab.com/ee/user/group/saml_sso/index.html#user-access-and-management
-
-

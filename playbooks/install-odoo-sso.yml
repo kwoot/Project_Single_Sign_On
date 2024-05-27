@@ -37,7 +37,7 @@
 
     - name: Fail when odoo-bin not at /opt/odoo/odoo-server/odoo-bin
       ansible.builtin.fail:
-      when: stat_odoo_bin.stat.exists  == false
+      when: not stat_odoo_bin.stat.exists
 
     - name: Check if /opt/odoo/custom/addons is a directory
       ansible.builtin.stat:
@@ -50,17 +50,18 @@
 
     - name: Fail when /opt/odoo/custom/addons is not an existing directory
       ansible.builtin.fail:
-      when: stat_custom_addon_dir.stat.exists  == false or stat_custom_addon_dir.stat.isdir == false
+      when: not stat_custom_addon_dir.stat.exists or not stat_custom_addon_dir.stat.isdir
 
     # Okay, this seems to be an Odoo install, but what version?
     # odoo-bin --version > Odoo server 14.0?
     - name: Try to determine the version of Odoo currently installed
-      become: yes
+      become: true
       become_user: odoo
       become_method: ansible.builtin.sudo
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: /opt/odoo/odoo-server/odoo-bin --version
       register: installed_odoo
+      changed_when: installed_odoo.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Get the last 4 characters from version string
       ansible.builtin.set_fact:
@@ -100,7 +101,7 @@
 
     # Original at  https://orus.io/xcg/auth_saml
     # These days at https://github.com/OCA/server-auth/tree/{{ odoo_version }}/auth_saml
-    - name: checkout OCA repo server-auth branch to temporary storage directory for version "{{ odoo_version }}"
+    - name: Checkout OCA repo server-auth branch to temporary storage directory for version "{{ odoo_version }}"
       ansible.builtin.git:
         repo: 'https://github.com/OCA/server-auth/'
         dest: /root/server-auth
@@ -280,7 +281,7 @@
 
     # We are going to use a shell command to retrieve the value for X509Certificate
     - name: Run xmlstarlet to retrieve X509Certificate
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
       register: xmlstarlet
       changed_when: xmlstarlet.rc != 0 # <- Uses the return code to define when the task has changed.
@@ -297,7 +298,7 @@
       ansible.builtin.fetch:
         src: "/tmp/{{ item }}"
         dest: "/tmp/"
-        flat: yes
+        flat: true
       loop:
         - sp.crt
         - sp.key
@@ -312,18 +313,20 @@
         - sp.key
 
     - name: Retrieve remote ssl cert
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: cat  /tmp/sp.crt  |  tr -d '\n'
       register: sp_crt
+      changed_when: sp_crt.rc != 0 # <- Uses the return code to define when the task has changed.
 
-    - name: show sp crt
+    - name: Show sp crt
       ansible.builtin.debug:
         var: sp_crt
 
     - name: Retrieve remote ssl key
-      ansible.builtin.shell:
+      ansible.builtin.command:
         cmd: cat  /tmp/sp.key  |  tr -d '\n'
       register: sp_key
+      changed_when: sp_key.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Show sp key
       ansible.builtin.debug:
@@ -333,7 +336,8 @@
       ansible.builtin.template:
         src: odoo-nginx-odoo.j2
         dest: /etc/nginx/sites-available/odoo
-        force: yes
+        force: true
+        mode: '0644'
 
     - name: Restart Nginx
       ansible.builtin.systemd:
@@ -366,13 +370,13 @@
       ansible.builtin.debug:
         var: existingclient.json[0].id
 
-    - name: Delete client id  "{{ odoo_client_id }}" if it already exists.
+    - name: If it already exists delete client id  "{{ odoo_client_id }}" .
       # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
@@ -395,6 +399,7 @@
       ansible.builtin.copy:
         content: "{{ jsonbody }}"
         dest: /tmp/odoo-new-client-backup.json
+        mode: '0600'
 
    # Generate the json payload to upload
     - name: Upload JSON template file to create new Client ID on Keycloak server
@@ -434,9 +439,11 @@
           * - In the Identity Provider field enter the value "userid" !!!
           * - Make sure Entity ID contains the value "{{ odoo_client_id }}" !!!!
           * - Click on "Upload your file" next to "Odoo Public Certificate" and upload the "sp.crt" file you will see in /tmp.
-          * - If, after selecting and clicking "Ok" the upload button does not change into a field with the filename in it, you have to use a different browser!
+          * - If, after selecting and clicking "Ok" the upload button does not change into a field with the filename in it,
+          *   you have to use a different browser!
           * - Click on "Upload your file" next to "Odoo Private Key" and upload the "sp.key" file you will see in /tmp.
-          * - Again, if, after selecting and clicking "Ok" the upload button does not change into a field with the filename in it, you have to use a different browser!
+          * - Again, if, after selecting and clicking "Ok" the upload button does not change into a field with the filename in it,
+          *   you have to use a different browser!
           * - For "Signature Algorythm" you select "SIG_RSA_SHA256"
           * - Alle checkboxen aanvinken behalve "Want Assertions Signed".
           * - Zoek in keycloak het userid op van een gebruiker (lijkt op "1513d874-2a7e-4f05-87a3-9f101302aa81".
@@ -444,8 +451,3 @@
           * - Maak gebruiker aan en open het tabblad "SAML".
           * - Voeg een regel toe, kies de geconfigureerde SAML backend en vul het SAML userid toe.
           *************************************************************************************
-
-
-
-
-
