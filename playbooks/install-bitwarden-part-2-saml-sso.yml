@@ -269,8 +269,8 @@
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
-        Accept: "application/json"
-        Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204

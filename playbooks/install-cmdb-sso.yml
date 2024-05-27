@@ -10,6 +10,17 @@
     cmdb_server_url: https://cmdb.{{ domain }}
     cmdb_client_id: "client-cmdb"
 
+  handlers:
+    # Populate/initialize cmdbuild database
+    - name: Initial datatase load
+      become: true
+      become_user: postgres
+      ansible.builtin.command:
+        cmd: /usr/bin/gunzip -c /tmp/cmdbuild.dump.gz | psql postgresql://cmdbuild:cmdbuild@localhost:5432/cmdbuild
+      when: dbwork.changed
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
+
   tasks:
     - name: Show tip for sensible output
       ansible.builtin.debug:
@@ -50,7 +61,6 @@
       ansible.builtin.stat:
         path: /root/cmdbuild-3.4.war
       register: warfile_stat
-
 
 
     # Download cmdbuild-3.4.war via cmdbuild.org
@@ -102,6 +112,16 @@
         password: 'cmdbuild'
         # priv: "CONNECT"
 
+    # Copy db init file to /tmp so user postgres can read it
+    - name: Copy database dump file to /tmp if the database was just created.
+      ansible.builtin.copy:
+        src: files/cmdbuild.dump.gz
+        dest: /tmp/cmdbuild.dump.gz
+        mode: '0644'
+        owner: postgres
+        group: postgres
+
+
     # postgresql create database cmdbuild owner cmdbuild
     - name: Make sure cmdbuild Postgresql database exists.
       become: true
@@ -112,28 +132,13 @@
         owner: cmdbuild
         state: present
       register: dbwork
+      notify:
+        - Initial datatase load
 
     - name: Show dbwork variable
       ansible.builtin.debug:
         msg: "{{ dbwork }}"
 
-    # Copy db init file to /tmp so user postgres can read it
-    - name: Copy database dump file to /tmp if the database was just created.
-      ansible.builtin.copy:
-        src: files/cmdbuild.dump.gz
-        dest: /tmp/cmdbuild.dump.gz
-        mode: '0644'
-        owner: postgres
-        group: postgres
-      when: dbwork.changed
-
-    # Populate/initialize cmdbuild database
-    - name: Initialize cmdbuild datatase if it was just created.
-      become: true
-      become_user: postgres
-      ansible.builtin.command:
-        cmd: /usr/bin/gunzip -c /tmp/cmdbuild.dump.gz | psql postgresql://cmdbuild:cmdbuild@localhost:5432/cmdbuild
-      when: dbwork.changed
 
     # Set default jdk to /usr/lib/jvm/java-17-openjdk-amd64/ in /etc/default/tomcat9
     - name: Setup default jdk in /etc/default/tomcat9
@@ -149,11 +154,13 @@
         state: directory
         owner: tomcat
         group: tomcat
+        mode: '0755'
 
     - name: Configure database connection
       ansible.builtin.blockinfile:
         path: /var/lib/tomcat9/conf/cmdbuild/database.conf
-        create: yes
+        create: true
+        mode: '0600'
         block: |
           db.url=jdbc:postgresql://localhost:5432/cmdbuild
           db.username=cmdbuild
@@ -167,6 +174,7 @@
       ansible.builtin.copy:
         src: files/cmdb_nginx.conf
         dest: /etc/nginx/sites-available/default
+        mode: '0644'
 
     - name: Make SSL dir for nginx
       ansible.builtin.file:
@@ -190,7 +198,7 @@
       ansible.builtin.systemd:
         name: nginx
         state: restarted
-        enabled: yes
+        enabled: true
 
 
     # Setup SSO configuration Using SSO SAML authentication as described in
@@ -209,6 +217,9 @@
       ansible.builtin.command:
         cmd: /usr/bin/openssl req -x509 -sha256 -newkey rsa:1024 -keyout sp.key -out sp.crt -days 3650 -nodes -subj '/CN={{ domain }}'
         chdir: /tmp
+      register: my_output # <- Registers the command output.
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
+
 
     # Start getting auth token
     # Retrieve token url needed.  Returns JSON payload with var token-service.
@@ -300,7 +311,7 @@
         url: "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml/descriptor"
         method: get
         validate_certs: false
-        return_content: yes
+        return_content: true
       register: idp_metadata
 
     - name: Show idp metadata
@@ -320,12 +331,15 @@
       ansible.builtin.copy:
         content: "{{  idp_metadata.content }}"
         dest: /tmp/idp.xml
+        mode: '0600'
 
     # We are going to use a shell command to retrieve the value for X509Certificate
     - name: Run xmlstarlet to retrieve X509Certificate
       ansible.builtin.command:
         cmd: /usr/bin/xmlstarlet sel -t -v //ds:X509Certificate /tmp/idp.xml
       register: xmlstarlet
+      changed_when: xmlstarlet.rc != 0 # <- Uses the return code to define when the task has changed.
+
 
     - name: Show xmlstarlet
       ansible.builtin.debug:
@@ -348,6 +362,8 @@
       ansible.builtin.command:
         cmd: cat  /tmp/sp.crt  |  tr -d '\n'
       register: sp_crt
+      changed_when: sp_crt.rc != 0 # <- Uses the return code to define when the task has changed.
+
 
     - name: Show sp crt
       ansible.builtin.debug:
@@ -357,6 +373,8 @@
       ansible.builtin.command:
         cmd: cat  /tmp/sp.key  |  tr -d '\n'
       register: sp_key
+      changed_when: sp_key.rc != 0 # <- Uses the return code to define when the task has changed.
+
 
     - name: Show sp key
       ansible.builtin.debug:
@@ -369,8 +387,8 @@
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients?clientId={{ cmdb_client_id }}"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: get
         validate_certs: false
       register: existingclient
@@ -381,20 +399,21 @@
 
     - name: Copy existing client to backup file.
       ansible.builtin.copy:
-       content: "{{ existingclient }}"
-       dest: /tmp/cmdb-existing-client-backup.json
+        content: "{{ existingclient }}"
+        dest: /tmp/cmdb-existing-client-backup.json
+        mode: '0600'
 
     - name: Find ID in returned json
       ansible.builtin.debug:
         var: existingclient.json[0].id
 
-    - name: Delete client id  "{{ cmdb_client_id }}" if it already exists.
+    - name: If it already exists then delete client id  "{{ cmdb_client_id }}".
       # Example: "id": "ba973624-2d00-488f-8d18-154224c63f8f"
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients/{{ existingclient.json[0].id }}"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}"
         method: DELETE
         validate_certs: false
         status_code: 204
@@ -417,14 +436,15 @@
       ansible.builtin.copy:
         content: "{{ jsonbody }}"
         dest: /tmp/jsonbody
+        mode: '0600'
 
    # Generate the json payload to upload
     - name: Upload JSON template file to create new Client ID on Keycloak server
       ansible.builtin.uri:
         url: "{{ keycloak_server_url }}/admin/realms/{{ realm }}/clients"
         headers:
-         Accept: "application/json"
-         Authorization: "Bearer {{ auth_token }}" #.json[\"access_token\"]  }}"
+          Accept: "application/json"
+          Authorization: "Bearer {{ auth_token }}" # .json[\"access_token\"]  }}"
         method: POST
         validate_certs: false
         body_format: json
@@ -484,19 +504,19 @@
       ansible.builtin.systemd:
         name: tomcat9
         state: restarted
-        enabled: yes
+        enabled: true
 
     - name: Start waiting
       ansible.builtin.debug:
         msg: "Start waiting for 443 to become available"
 
-    - name: waiting
+    - name: Waiting
       ansible.builtin.wait_for:
         port: 443
         delay: 20
 
     # Measured 12 attempts, so 25 max should work most of the time.
-    - name: check if "{{ cmdb_server_url }}/cmdbuild/rest/v3/sessions" is open on the host (even a 403 means it is responding).
+    - name: Check if cmdb_server_url/cmdbuild/rest/v3/sessions" is open on the host (even a 403 means it is responding).
       ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/rest/v3/sessions"
         status_code: 403
@@ -551,7 +571,7 @@
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config"
         method: GET
         validate_certs: false
-        headers: { 'Cmdbuild-authorization': "{{ sessionid }}", 'includeDefault':  "True" }
+        headers: { 'Cmdbuild-authorization': "{{ sessionid }}", 'includeDefault': "True" }
       register: cmdbconf
 
     - name: Show cmdbconf
@@ -659,7 +679,7 @@
         body:
           "False"
 
-    - name: Set value of org.cmdbuild.auth.module.saml.idp.logout to "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"
+    - name: Set value of org.cmdbuild.auth.module.saml.idp.logout "
       ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.logout"
         method: PUT
@@ -680,7 +700,7 @@
         body:
           "{{ cmdb_base_url }}"
 
-    - name: Set value of org.cmdbuild.auth.module.saml.idp.login to "{{ keycloak_server_url }}/realms/{{ realm }}/protocol/saml"
+    - name: Set value of org.cmdbuild.auth.module.saml.idp.login"
       ansible.builtin.uri:
         url: "{{ cmdb_server_url }}/cmdbuild/services/rest/v3/system/config/org.cmdbuild.auth.module.saml.idp.login"
         method: PUT
@@ -769,6 +789,7 @@
         cmd: bash ./cmdbuild.sh restws -username admin -password admin getconfigs | grep auth
         chdir: /var/lib/tomcat9/webapps/cmdbuild
       register: authconfig
+      changed_when: authconfig.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Show variable authconfig
       ansible.builtin.debug:
