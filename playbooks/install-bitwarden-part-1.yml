@@ -79,9 +79,8 @@
 
     # Make dir for SSL keys
     - name: Make SSL dir for keys
-      become: yes
+      become: true
       become_user: bitwarden
-      become_method: sudo
       ansible.builtin.command:
         cmd: "mkdir -p /opt/bitwarden/bwdata/ssl/self/{{ ansible_fqdn }}"
       register: my_output # <- Registers the command output.
@@ -140,9 +139,9 @@
         dest: /opt/bitwarden
         owner: bitwarden
         group: bitwarden
-        remote_src: yes
+        remote_src: true
 
-    - name: make Bitwarden CLI tool executable
+    - name: Make Bitwarden CLI tool executable
       ansible.builtin.file:
         path: /opt/bitwarden/bw
         owner: bitwarden
@@ -230,9 +229,8 @@
     # Next steps, run:
     # `./bitwarden.sh start`
     - name: Run the install script
-      become: yes
+      become: true
       become_user: bitwarden
-      become_method: sudo
       ansible.builtin.expect:
         command: /opt/bitwarden/bitwarden.sh install
         chdir: /opt/bitwarden
@@ -240,19 +238,18 @@
         echo: true
         responses:
           "Enter the domain name for your Bitwarden instance": "{{ ansible_fqdn }}"
-          "Do you want to use Let's Encrypt to generate a free SSL certificate":  n
+          "Do you want to use Let's Encrypt to generate a free SSL certificate": n
           "Enter the database name for your Bitwarden instance": vault
           "Enter your installation id": "{{ bitwarden_installation_id }}"
           "Enter your installation key": "{{ bitwarden_installation_key }}"
           "Do you have a SSL certificate to use": y
           "Is this a trusted SSL certificate": y
-      ignore_errors: true
+      ignore_errors: "{{ ansible_check_mode }}" # <- Ignores errors in check mode.
 
     # Make dir for BitWarden SSL keys
     - name: Make SSL dir for keys
       become: true
       become_user: bitwarden
-      become_method: sudo
       ansible.builtin.command:
         cmd: "mkdir -p /opt/bitwarden/bwdata/ssl/self/{{ ansible_fqdn }}"
       register: my_output # <- Registers the command output.
@@ -291,16 +288,16 @@
     # ssl_ca_path:
     # Note: Path uses the container's ssl directory. The `./ssl` host directory is mapped to
     - name: Copy current SSL cert to correct directory ("/bwdata/ssl/{{ ansible_fqdn }}/"
-      become: yes
+      become: true
       become_user: bitwarden
-      become_method: sudo
       ansible.builtin.copy:
         src: "files/_wildcard.{{ domain }}.pem"
         dest: "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/certificate.crt"
+        mode: '0600'
 
     - name: Show path to certificate
       ansible.builtin.debug:
-        msg:  "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/certificate.crt"
+        msg: "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/certificate.crt"
 
   # Bitwarden NGINX borkt hierop
   # - name: Append current CA to certificate
@@ -308,35 +305,36 @@
   #     cmd: cat "{{ root_ca_path }}" >> "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/certificate.crt"
 
     - name: Copy current SSL key to correct directory "bwdata/ssl/{{ ansible_fqdn }}/"
-      become: yes
+      become: true
       become_user: bitwarden
-      become_method: sudo
       ansible.builtin.copy:
         src: "files/_wildcard.{{ domain }}-key.pem"
         dest: "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/private.key"
+        mode: '0600'
 
     - name: Show path to private key
       ansible.builtin.debug:
-        msg:  "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/private.key"
+        msg: "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/private.key"
 
     - name: Copy CA certificate file key to correct directory
-      become: yes
+      become: true
       become_user: bitwarden
-      become_method: sudo
       ansible.builtin.copy:
         src: "{{ root_ca_path }}"
-        remote_src: yes
+        remote_src: true
         dest: "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/ca.crt"
+        mode: '0600'
 
     - name: Show path to ca certificate
       ansible.builtin.debug:
-        msg:  "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/ca.crt"
+        msg: "/opt/bitwarden/bwdata/ssl/{{ ansible_fqdn }}/ca.crt"
 
     # TODO Next steps, run:
     # `./bitwarden.sh start`
     # 3. Configure the Environment
     # Run ./bitwarden.sh start to start the Bitwarden Server.
-    # Note: Some Bitwarden features are not configured by the bitwarden.sh installer, and must be configured in the environment file, located at ./bwdata/env/global.override.env. At a minimum, you should configure:
+    # Note: Some Bitwarden features are not configured by the bitwarden.sh installer, and must be configured in the environment file,
+    #       located at ./bwdata/env/global.override.env. At a minimum, you should configure:
     # ...
     # globalSettings__mail__smtp__host=<placeholder>
     # globalSettings__mail__smtp__port=<placeholder>
@@ -350,23 +348,21 @@
     # the settings in `./bwdata/config.yml` and then run:
     # `./bitwarden.sh rebuild` or `./bitwarden.sh update`
     - name: Implement changes in config files
-      become: yes
+      become: true
       become_user: bitwarden
-      become_method: sudo
       ansible.builtin.command:
         chdir: /opt/bitwarden
         cmd: /opt/bitwarden/bitwarden.sh rebuild
       register: my_output # <- Registers the command output.
-      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.  
+      changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
 
     # Run the following command to apply your changes:
     # ./bitwarden.sh restart
     - name: Restart all bitwarden services
-      become: yes
+      become: true
       become_user: bitwarden
-      become_method: sudo
-      shell:
+      ansible.builtin.command:
         chdir: /opt/bitwarden
         cmd: /opt/bitwarden/bitwarden.sh restart
       register: my_output # <- Registers the command output.
@@ -393,5 +389,3 @@
           * Please continue to the SAML playbook for bitwarden called "install-bitwarden-part-2-saml-sso.yml".
           * We are done here.
           ****************************************************************************************
-
-
