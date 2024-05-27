@@ -114,7 +114,7 @@
       register: dbwork
 
     - name: Show dbwork variable
-      community.postgresql.postgresql_userdebug:
+      ansible.builtin.debug:
         msg: "{{ dbwork }}"
 
     # Copy db init file to /tmp so user postgres can read it

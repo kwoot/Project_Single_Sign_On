@@ -119,7 +119,7 @@
       changed_when: my_output.rc != 0 # <- Uses the return code to define when the task has changed.
 
     - name: Restart Odoo server to make sure the new module is available in the app store.
-      ansible.builtin.systemd_Service:
+      ansible.builtin.systemd_service:
         name: odoo-server
         state: restarted
 

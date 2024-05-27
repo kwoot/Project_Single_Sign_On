@@ -209,7 +209,7 @@
 
     # Enable and start systemd keycloak service
     - name: Configure Keycloak systemd
-      ansible.builtin.systemd_Service:
+      ansible.builtin.systemd_service:
         name: keycloak
         enabled: yes
         state: restarted
